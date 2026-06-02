@@ -5,12 +5,15 @@
 struct SDL_Texture; // declaracion adelantada: SDL solo aparece en el .cpp
 
 // Dibuja una imagen segun el Transform. Puede dibujar la imagen completa o,
-// si se le da un recorte (setSourceRect), solo una porcion: asi un spritesheet
-// se convierte en un frame a la vez. El SpriteAnimator usa justamente esto.
+// si se le da un recorte (setSourceRect), solo una porcion (un frame de spritesheet).
+// flipX / flipY permiten voltear el dibujo (p.ej. mirar al otro lado) sin tocar SDL.
 
 class SpriteRenderer : public Component {
 public:
     explicit SpriteRenderer(std::string imagePath);
+
+    bool flipX = false; // espejo horizontal (mirar a izquierda/derecha)
+    bool flipY = false; // espejo vertical
 
     void awake() override;
     void render() override;

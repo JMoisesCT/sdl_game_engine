@@ -34,7 +34,7 @@
     <Image Include="assets\rect.png" />
     <Image Include="assets\rectangle.png" />
     <Image Include="assets\roca.png" />
-    <Image Include="assets\sheet.png" />
+    <Image Include="assets\personaje.png" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="engine\AssetManager.h" />

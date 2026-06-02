@@ -39,12 +39,14 @@ void SpriteRenderer::render() {
         dst.h = baseH * t->scaleY;
     }
 
-    if (useSrcRect) {
-        SDL_FRect src{ srcX, srcY, srcW, srcH };
-        SDL_RenderTextureRotated(renderer, texture, &src, &dst,
-                                 t->rotation, nullptr, SDL_FLIP_NONE);
-    } else {
-        SDL_RenderTextureRotated(renderer, texture, nullptr, &dst,
-                                 t->rotation, nullptr, SDL_FLIP_NONE);
-    }
+    // Traducimos nuestras banderas simples al modo de volteo de SDL.
+    SDL_FlipMode flip = SDL_FLIP_NONE;
+    if (flipX) flip = (SDL_FlipMode)(flip | SDL_FLIP_HORIZONTAL);
+    if (flipY) flip = (SDL_FlipMode)(flip | SDL_FLIP_VERTICAL);
+
+    SDL_FRect src{ srcX, srcY, srcW, srcH };
+    const SDL_FRect* srcPtr = useSrcRect ? &src : nullptr;
+
+    SDL_RenderTextureRotated(renderer, texture, srcPtr, &dst,
+                             t->rotation, nullptr, flip);
 }

@@ -33,39 +33,45 @@ int main(int argc, char* argv[]) {
     Scene scene(renderer);
 
     // ---- Personaje animado ----
-    // Spritesheet 256x160, cada frame 32x32  =>  8 columnas y 5 filas (40 celdas).
-    // Celdas por fila: fila 0 = 0..7, fila 1 = 8..15, fila 2 = 16..23, ...
+    // Spritesheet 256x160, frames de 32x32  =>  8 columnas y 5 filas (celdas 0..39).
     GameObject* player = scene.createGameObject("Player");
     player->transform->x = 0.0f;
     player->transform->y = 0.0f;
-    player->transform->scaleX = 4.0f; // 32x32 se ve chico: lo agrandamos x4
+    player->transform->scaleX = 4.0f;
     player->transform->scaleY = 4.0f;
 
-    player->addComponent<SpriteRenderer>("assets/sheet.png");
+    SpriteRenderer* playerSprite = player->addComponent<SpriteRenderer>("assets/personaje.png");
 
     SpriteAnimator* anim = player->addComponent<SpriteAnimator>(32, 32, 8);
-    anim->addAnimation("idle", {0, 1, 2, 3, 4}, 6.0f);             // fila 0
+    anim->addAnimation("idle", {0, 1, 2, 3}, 6.0f);             // fila 0
     anim->addAnimation("walk", {8, 9, 10, 11, 12, 13, 14, 15}, 10.0f);  // fila 1
-    anim->play("walk"); // ajusta estos indices al orden real de TU hoja
 
-    // ---- NPC quieto de referencia: mismo spritesheet (sale de cache), un frame fijo ----
+    // ---- Direccion inicial ----
+    // Se asume que el arte esta dibujado mirando a la DERECHA.
+    // Cambia a true si quieres que el personaje arranque mirando a la izquierda.
+    bool facingLeft = true;
+    playerSprite->flipX = facingLeft;
+    anim->play("idle");
+
+    // ---- NPC quieto de referencia (mismo spritesheet, sale de cache) ----
     GameObject* npc = scene.createGameObject("NPC");
     npc->transform->x = 300.0f;
     npc->transform->scaleX = 4.0f;
     npc->transform->scaleY = 4.0f;
-    SpriteRenderer* npcSprite = npc->addComponent<SpriteRenderer>("assets/sheet.png");
-    npcSprite->setSourceRect(0, 0, 32, 32); // solo el primer frame, sin animar
+    SpriteRenderer* npcSprite = npc->addComponent<SpriteRenderer>("assets/personaje.png");
+    npcSprite->setSourceRect(0, 0, 32, 32);
 
     // ---- Camara que sigue al player con zona muerta ----
     GameObject* camara = scene.createGameObject("MainCamera");
     camara->addComponent<Camera>();
     FollowCamera* follow = camara->addComponent<FollowCamera>();
     follow->setTarget(player);
-    follow->deadZoneWidth  = 200.0f; // el player puede moverse 100 px a cada lado
-    follow->deadZoneHeight = 150.0f; // sin que la camara reaccione
-    follow->smoothSpeed    = 5.0f;   // pon 0 para seguimiento duro
+    follow->deadZoneWidth  = 200.0f;
+    follow->deadZoneHeight = 150.0f;
+    follow->smoothSpeed    = 5.0f;
 
     // ---- Bucle principal ----
+    const float SPEED = 200.0f; // velocidad del player en px/seg
     bool running = true;
     Uint64 lastTime = SDL_GetTicks();
 
@@ -79,12 +85,32 @@ int main(int argc, char* argv[]) {
             if (event.type == SDL_EVENT_QUIT) running = false;
         }
 
-        // Movimiento de prueba (mas adelante vendra del teclado del alumno).
-        player->transform->x += 120.0f * dt;
+        // ---- Teclado: estado actual de todas las teclas (SDL3 => const bool*) ----
+        const bool* keys = SDL_GetKeyboardState(nullptr);
+
+        float moveX = 0.0f;
+        float moveY = 0.0f;
+        if (keys[SDL_SCANCODE_LEFT])  moveX -= 1.0f;
+        if (keys[SDL_SCANCODE_RIGHT]) moveX += 1.0f;
+        if (keys[SDL_SCANCODE_UP])    moveY -= 1.0f;
+        if (keys[SDL_SCANCODE_DOWN])  moveY += 1.0f;
+
+        // Mover al personaje
+        player->transform->x += moveX * SPEED * dt;
+        player->transform->y += moveY * SPEED * dt;
+
+        // Flip segun hacia donde camina (solo cambia si hay movimiento horizontal)
+        if      (moveX < 0.0f) facingLeft = false;
+        else if (moveX > 0.0f) facingLeft = true;
+        playerSprite->flipX = facingLeft;
+
+        // Animacion: caminar si se mueve, quieto si no
+        bool moving = (moveX != 0.0f || moveY != 0.0f);
+        anim->play(moving ? "walk" : "idle");
 
         scene.update(dt);
 
-        SDL_SetRenderDrawColor(renderer, 20, 20, 30, 255);
+        SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
         SDL_RenderClear(renderer);
         scene.render();
         SDL_RenderPresent(renderer);
