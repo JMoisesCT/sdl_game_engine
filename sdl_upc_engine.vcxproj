@@ -20,15 +20,23 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="engine\AssetManager.cpp" />
+    <ClCompile Include="engine\Camera.cpp" />
     <ClCompile Include="engine\SpriteRenderer.cpp" />
     <ClCompile Include="main.cpp" />
   </ItemGroup>
   <ItemGroup>
     <Image Include="assets\bg.png" />
+    <Image Include="assets\cuadrado.png" />
+    <Image Include="assets\nave.png" />
+    <Image Include="assets\rec.png" />
+    <Image Include="assets\rect.png" />
+    <Image Include="assets\rectangle.png" />
+    <Image Include="assets\roca.png" />
     <Image Include="assets\sheet.png" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="engine\AssetManager.h" />
+    <ClInclude Include="engine\Camera.h" />
     <ClInclude Include="engine\Component.h" />
     <ClInclude Include="engine\GameObject.h" />
     <ClInclude Include="engine\Scene.h" />

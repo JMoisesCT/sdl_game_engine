@@ -24,12 +24,33 @@
     <ClCompile Include="engine\AssetManager.cpp">
       <Filter>Archivos de origen</Filter>
     </ClCompile>
+    <ClCompile Include="engine\Camera.cpp">
+      <Filter>Archivos de origen</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <Image Include="assets\bg.png">
       <Filter>Archivos de recursos</Filter>
     </Image>
     <Image Include="assets\sheet.png">
+      <Filter>Archivos de recursos</Filter>
+    </Image>
+    <Image Include="assets\cuadrado.png">
+      <Filter>Archivos de recursos</Filter>
+    </Image>
+    <Image Include="assets\nave.png">
+      <Filter>Archivos de recursos</Filter>
+    </Image>
+    <Image Include="assets\rec.png">
+      <Filter>Archivos de recursos</Filter>
+    </Image>
+    <Image Include="assets\rect.png">
+      <Filter>Archivos de recursos</Filter>
+    </Image>
+    <Image Include="assets\rectangle.png">
+      <Filter>Archivos de recursos</Filter>
+    </Image>
+    <Image Include="assets\roca.png">
       <Filter>Archivos de recursos</Filter>
     </Image>
   </ItemGroup>
@@ -50,6 +71,9 @@
       <Filter>Archivos de encabezado</Filter>
     </ClInclude>
     <ClInclude Include="engine\AssetManager.h">
+      <Filter>Archivos de encabezado</Filter>
+    </ClInclude>
+    <ClInclude Include="engine\Camera.h">
       <Filter>Archivos de encabezado</Filter>
     </ClInclude>
   </ItemGroup>
