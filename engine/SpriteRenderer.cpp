@@ -23,20 +23,28 @@ void SpriteRenderer::render() {
     Transform* t = gameObject->transform;
     Camera* cam = gameObject->scene->getActiveCamera();
 
+    // Tamano base: el del frame recortado, o el de la imagen completa.
+    float baseW = useSrcRect ? srcW : width;
+    float baseH = useSrcRect ? srcH : height;
+
     SDL_FRect dst;
     if (cam) {
-        // Con camara: mundo -> pantalla, y el zoom afecta tambien el tamano.
         cam->worldToScreen(t->x, t->y, dst.x, dst.y);
-        dst.w = width  * t->scaleX * cam->getZoom();
-        dst.h = height * t->scaleY * cam->getZoom();
+        dst.w = baseW * t->scaleX * cam->getZoom();
+        dst.h = baseH * t->scaleY * cam->getZoom();
     } else {
-        // Sin camara: se dibuja en coordenadas de pantalla directas (como antes).
         dst.x = t->x;
         dst.y = t->y;
-        dst.w = width  * t->scaleX;
-        dst.h = height * t->scaleY;
+        dst.w = baseW * t->scaleX;
+        dst.h = baseH * t->scaleY;
     }
 
-    SDL_RenderTextureRotated(renderer, texture, nullptr, &dst,
-                             t->rotation, nullptr, SDL_FLIP_NONE);
+    if (useSrcRect) {
+        SDL_FRect src{ srcX, srcY, srcW, srcH };
+        SDL_RenderTextureRotated(renderer, texture, &src, &dst,
+                                 t->rotation, nullptr, SDL_FLIP_NONE);
+    } else {
+        SDL_RenderTextureRotated(renderer, texture, nullptr, &dst,
+                                 t->rotation, nullptr, SDL_FLIP_NONE);
+    }
 }

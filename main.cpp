@@ -4,8 +4,10 @@
 #include "engine/Scene.h"
 #include "engine/GameObject.h"
 #include "engine/SpriteRenderer.h"
+#include "engine/SpriteAnimator.h"
 #include "engine/Transform.h"
 #include "engine/Camera.h"
+#include "engine/FollowCamera.h"
 
 int main(int argc, char* argv[]) {
     if (!SDL_Init(SDL_INIT_VIDEO)) {
@@ -28,24 +30,40 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    // ---- Escena ----
     Scene scene(renderer);
 
-    // Jugador (se movera para que se note la camara)
+    // ---- Personaje animado ----
+    // Spritesheet 256x160, cada frame 32x32  =>  8 columnas y 5 filas (40 celdas).
+    // Celdas por fila: fila 0 = 0..7, fila 1 = 8..15, fila 2 = 16..23, ...
     GameObject* player = scene.createGameObject("Player");
     player->transform->x = 0.0f;
     player->transform->y = 0.0f;
-    player->addComponent<SpriteRenderer>("assets/roca.png");
+    player->transform->scaleX = 4.0f; // 32x32 se ve chico: lo agrandamos x4
+    player->transform->scaleY = 4.0f;
 
-    // Objeto estatico de referencia
-    GameObject* roca = scene.createGameObject("Roca");
-    roca->transform->x = 400.0f;
-    roca->transform->y = 0.0f;
-    roca->addComponent<SpriteRenderer>("assets/nave.png");
+    player->addComponent<SpriteRenderer>("assets/sheet.png");
 
-    // Camara: su Transform es el punto que queda en el centro de la pantalla
+    SpriteAnimator* anim = player->addComponent<SpriteAnimator>(32, 32, 8);
+    anim->addAnimation("idle", {0, 1, 2, 3, 4}, 6.0f);             // fila 0
+    anim->addAnimation("walk", {8, 9, 10, 11, 12, 13, 14, 15}, 10.0f);  // fila 1
+    anim->play("walk"); // ajusta estos indices al orden real de TU hoja
+
+    // ---- NPC quieto de referencia: mismo spritesheet (sale de cache), un frame fijo ----
+    GameObject* npc = scene.createGameObject("NPC");
+    npc->transform->x = 300.0f;
+    npc->transform->scaleX = 4.0f;
+    npc->transform->scaleY = 4.0f;
+    SpriteRenderer* npcSprite = npc->addComponent<SpriteRenderer>("assets/sheet.png");
+    npcSprite->setSourceRect(0, 0, 32, 32); // solo el primer frame, sin animar
+
+    // ---- Camara que sigue al player con zona muerta ----
     GameObject* camara = scene.createGameObject("MainCamera");
     camara->addComponent<Camera>();
+    FollowCamera* follow = camara->addComponent<FollowCamera>();
+    follow->setTarget(player);
+    follow->deadZoneWidth  = 200.0f; // el player puede moverse 100 px a cada lado
+    follow->deadZoneHeight = 150.0f; // sin que la camara reaccione
+    follow->smoothSpeed    = 5.0f;   // pon 0 para seguimiento duro
 
     // ---- Bucle principal ----
     bool running = true;
@@ -61,12 +79,8 @@ int main(int argc, char* argv[]) {
             if (event.type == SDL_EVENT_QUIT) running = false;
         }
 
-        // El jugador avanza (mas adelante esto vendra del input del alumno)
+        // Movimiento de prueba (mas adelante vendra del teclado del alumno).
         player->transform->x += 120.0f * dt;
-
-        // La camara sigue al jugador: el jugador queda centrado y la roca se desplaza
-        camara->transform->x = player->transform->x;
-        camara->transform->y = player->transform->y;
 
         scene.update(dt);
 
