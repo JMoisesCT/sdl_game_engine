@@ -27,19 +27,27 @@ void SpriteRenderer::render() {
     float baseW = useSrcRect ? srcW : width;
     float baseH = useSrcRect ? srcH : height;
 
-    SDL_FRect dst;
+    float zoom = cam ? cam->getZoom() : 1.0f;
+    float drawW = baseW * t->scaleX * zoom;
+    float drawH = baseH * t->scaleY * zoom;
+
+    // El Transform marca el CENTRO del sprite en el mundo.
+    float centerX, centerY;
     if (cam) {
-        cam->worldToScreen(t->x, t->y, dst.x, dst.y);
-        dst.w = baseW * t->scaleX * cam->getZoom();
-        dst.h = baseH * t->scaleY * cam->getZoom();
-    } else {
-        dst.x = t->x;
-        dst.y = t->y;
-        dst.w = baseW * t->scaleX;
-        dst.h = baseH * t->scaleY;
+        cam->worldToScreen(t->x, t->y, centerX, centerY); // donde cae el centro en pantalla
+    }
+    else {
+        centerX = t->x;
+        centerY = t->y;
     }
 
-    // Traducimos nuestras banderas simples al modo de volteo de SDL.
+    SDL_FRect dst;
+    dst.w = drawW;
+    dst.h = drawH;
+    dst.x = centerX - drawW * 0.5f; // restamos medio sprite para centrarlo
+    dst.y = centerY - drawH * 0.5f; // en el punto del Transform
+
+    // Banderas simples -> modo de volteo de SDL.
     SDL_FlipMode flip = SDL_FLIP_NONE;
     if (flipX) flip = (SDL_FlipMode)(flip | SDL_FLIP_HORIZONTAL);
     if (flipY) flip = (SDL_FlipMode)(flip | SDL_FLIP_VERTICAL);
@@ -47,6 +55,8 @@ void SpriteRenderer::render() {
     SDL_FRect src{ srcX, srcY, srcW, srcH };
     const SDL_FRect* srcPtr = useSrcRect ? &src : nullptr;
 
+    // center = nullptr => SDL rota alrededor del centro del dst, que ahora es el
+    // centro real del sprite. Asi la rotacion tambien queda bien anclada.
     SDL_RenderTextureRotated(renderer, texture, srcPtr, &dst,
-                             t->rotation, nullptr, flip);
+        t->rotation, nullptr, flip);
 }
