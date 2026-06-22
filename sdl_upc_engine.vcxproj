@@ -20,8 +20,10 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="engine\AssetManager.cpp" />
+    <ClCompile Include="engine\BoxCollider.cpp" />
     <ClCompile Include="engine\Camera.cpp" />
     <ClCompile Include="engine\FollowCamera.cpp" />
+    <ClCompile Include="engine\Scene.cpp" />
     <ClCompile Include="engine\SpriteAnimator.cpp" />
     <ClCompile Include="engine\SpriteRenderer.cpp" />
     <ClCompile Include="main.cpp" />
@@ -38,10 +40,12 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="engine\AssetManager.h" />
+    <ClInclude Include="engine\BoxCollider.h" />
     <ClInclude Include="engine\Camera.h" />
     <ClInclude Include="engine\Component.h" />
     <ClInclude Include="engine\FollowCamera.h" />
     <ClInclude Include="engine\GameObject.h" />
+    <ClInclude Include="engine\RigidBody2D.h" />
     <ClInclude Include="engine\Scene.h" />
     <ClInclude Include="engine\SpriteAnimator.h" />
     <ClInclude Include="engine\SpriteRenderer.h" />

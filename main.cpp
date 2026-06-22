@@ -8,6 +8,8 @@
 #include "engine/Transform.h"
 #include "engine/Camera.h"
 #include "engine/FollowCamera.h"
+#include "engine/RigidBody2D.h"
+#include "engine/BoxCollider.h"
 
 int main(int argc, char* argv[]) {
     if (!SDL_Init(SDL_INIT_VIDEO)) {
@@ -32,46 +34,51 @@ int main(int argc, char* argv[]) {
 
     Scene scene(renderer);
 
-    // ---- Personaje animado ----
-    // Spritesheet 256x160, frames de 32x32  =>  8 columnas y 5 filas (celdas 0..39).
+    // ---- Player con fisica ----
     GameObject* player = scene.createGameObject("Player");
     player->transform->x = 0.0f;
-    player->transform->y = 0.0f;
+    player->transform->y = -150.0f; // arranca en el aire para verlo caer
     player->transform->scaleX = 4.0f;
     player->transform->scaleY = 4.0f;
 
     SpriteRenderer* playerSprite = player->addComponent<SpriteRenderer>("assets/personaje.png");
 
     SpriteAnimator* anim = player->addComponent<SpriteAnimator>(32, 32, 8);
-    anim->addAnimation("idle", {0, 1, 2, 3}, 6.0f);             // fila 0
-    anim->addAnimation("walk", {8, 9, 10, 11, 12, 13, 14, 15}, 10.0f);  // fila 1
+    anim->addAnimation("idle", {0, 1, 2, 3}, 6.0f);
+    anim->addAnimation("walk", {8, 9, 10, 11, 12, 13, 14, 15}, 10.0f);
 
-    // ---- Direccion inicial ----
-    // Se asume que el arte esta dibujado mirando a la DERECHA.
-    // Cambia a true si quieres que el personaje arranque mirando a la izquierda.
+    RigidBody2D* rb = player->addComponent<RigidBody2D>();   // gravedad + velocidad
+
+    BoxCollider* col = player->addComponent<BoxCollider>();
+    col->width  = 32.0f * 4.0f; // 128: cubre el sprite escalado x4
+    col->height = 32.0f * 4.0f;
+
     bool facingLeft = true;
     playerSprite->flipX = facingLeft;
-    anim->play("idle");
 
-    // ---- NPC quieto de referencia (mismo spritesheet, sale de cache) ----
-    GameObject* npc = scene.createGameObject("NPC");
-    npc->transform->x = 300.0f;
-    npc->transform->scaleX = 4.0f;
-    npc->transform->scaleY = 4.0f;
-    SpriteRenderer* npcSprite = npc->addComponent<SpriteRenderer>("assets/personaje.png");
-    npcSprite->setSourceRect(0, 0, 32, 32);
+    // ---- Suelo: collider estatico (sin RigidBody) ----
+    // Le ponemos un sprite estirado solo para verlo (normalmente seria un tilemap).
+    GameObject* suelo = scene.createGameObject("Suelo");
+    suelo->transform->x = 0.0f;
+    suelo->transform->y = 300.0f;
+    suelo->transform->scaleX = 60.0f; // ~1920 px de ancho
+    suelo->transform->scaleY = 3.0f;  // ~96 px de alto
+    SpriteRenderer* sueloSprite = suelo->addComponent<SpriteRenderer>("assets/personaje.png");
+    sueloSprite->setSourceRect(0, 0, 32, 32);
+    BoxCollider* sueloCol = suelo->addComponent<BoxCollider>();
+    sueloCol->width  = 32.0f * 60.0f; // coincide con el sprite estirado
+    sueloCol->height = 32.0f * 3.0f;
 
-    // ---- Camara que sigue al player con zona muerta ----
+    // ---- Camara que sigue al player ----
     GameObject* camara = scene.createGameObject("MainCamera");
     camara->addComponent<Camera>();
     FollowCamera* follow = camara->addComponent<FollowCamera>();
     follow->setTarget(player);
     follow->deadZoneWidth  = 200.0f;
-    follow->deadZoneHeight = 150.0f;
-    follow->smoothSpeed    = 5.0f;
+    follow->deadZoneHeight = 200.0f; // alto para que los saltos no muevan la camara
 
     // ---- Bucle principal ----
-    const float SPEED = 200.0f; // velocidad del player en px/seg
+    const float SPEED = 250.0f;
     bool running = true;
     Uint64 lastTime = SDL_GetTicks();
 
@@ -83,34 +90,31 @@ int main(int argc, char* argv[]) {
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
             if (event.type == SDL_EVENT_QUIT) running = false;
+
+            // Salto: solo al presionar (no mantenido) y si esta apoyado.
+            if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat &&
+                event.key.scancode == SDL_SCANCODE_SPACE && rb->grounded) {
+                rb->velocityY = -650.0f;
+            }
         }
 
-        // ---- Teclado: estado actual de todas las teclas (SDL3 => const bool*) ----
         const bool* keys = SDL_GetKeyboardState(nullptr);
-
         float moveX = 0.0f;
-        float moveY = 0.0f;
         if (keys[SDL_SCANCODE_LEFT])  moveX -= 1.0f;
         if (keys[SDL_SCANCODE_RIGHT]) moveX += 1.0f;
-        if (keys[SDL_SCANCODE_UP])    moveY -= 1.0f;
-        if (keys[SDL_SCANCODE_DOWN])  moveY += 1.0f;
 
-        // Mover al personaje
-        player->transform->x += moveX * SPEED * dt;
-        player->transform->y += moveY * SPEED * dt;
+        // Movimiento horizontal por velocidad; la gravedad maneja el eje Y.
+        rb->velocityX = moveX * SPEED;
 
-        // Flip segun hacia donde camina (solo cambia si hay movimiento horizontal)
         if      (moveX < 0.0f) facingLeft = false;
         else if (moveX > 0.0f) facingLeft = true;
         playerSprite->flipX = facingLeft;
 
-        // Animacion: caminar si se mueve, quieto si no
-        bool moving = (moveX != 0.0f || moveY != 0.0f);
-        anim->play(moving ? "walk" : "idle");
+        anim->play(moveX != 0.0f ? "walk" : "idle");
 
         scene.update(dt);
 
-        SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
+        SDL_SetRenderDrawColor(renderer, 20, 20, 30, 255);
         SDL_RenderClear(renderer);
         scene.render();
         SDL_RenderPresent(renderer);
