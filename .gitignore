@@ -3,6 +3,11 @@
 ##
 ## Get latest from https://github.com/github/gitignore/blob/main/VisualStudio.gitignore
 
+# --- Documentacion / contexto: NO se sube (solo el motor, no los prompts) ---
+*.md
+# Si en el futuro quieres subir uno publico, descomenta y ajusta:
+# !README.md
+
 # User-specific files
 *.rsuser
 *.suo
