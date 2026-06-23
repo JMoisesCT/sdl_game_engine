@@ -18,7 +18,7 @@
 class PlatformerController : public Component {
 public:
     float speed = 250.0f, jump = 650.0f;
-    void update(float) override {
+    void update(float dt) override {
         const bool* keys = SDL_GetKeyboardState(nullptr);
         auto rb     = gameObject->getComponent<RigidBody2D>();
         auto sprite = gameObject->getComponent<SpriteRenderer>();
@@ -29,15 +29,28 @@ public:
         if (keys[SDL_SCANCODE_RIGHT]) moveX += 1.0f;
         if (rb) rb->velocityX = moveX * speed;
 
+        // "Coyote time": el grounded de la fisica parpadea porque el jugador queda
+        // justo en el borde del suelo y la penetracion por frame es sub-pixel; a
+        // framerate alto casi nunca se detecta el solape. Guardamos una ventana
+        // corta desde el ultimo contacto real para que el salto no dependa de
+        // acertar el frame exacto en que grounded vale true.
+        if (rb && rb->grounded) coyote = coyoteTime;
+        else if (coyote > 0.0f) coyote -= dt;
+
         bool jumpNow = keys[SDL_SCANCODE_SPACE];
-        if (rb && jumpNow && !jumpPrev && rb->grounded) rb->velocityY = -jump;
+        if (rb && jumpNow && !jumpPrev && coyote > 0.0f) {
+            rb->velocityY = -jump;
+            coyote = 0.0f; // consumir la ventana: evita doble salto en el mismo apoyo
+        }
         jumpPrev = jumpNow;
 
         if (sprite) { if (moveX < 0) sprite->flipX = true; else if (moveX > 0) sprite->flipX = false; }
         if (anim) anim->play(moveX != 0.0f ? "walk" : "idle");
     }
 private:
-    bool jumpPrev = false;
+    bool  jumpPrev = false;
+    float coyote = 0.0f;                         // tiempo restante de la ventana de salto
+    static constexpr float coyoteTime = 0.1f;    // segundos de gracia tras el ultimo contacto
 };
 
 void buildPlatformer(Scene& scene) {
