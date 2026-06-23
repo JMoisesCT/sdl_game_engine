@@ -29,16 +29,6 @@
     <ClCompile Include="main.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <Image Include="assets\bg.png" />
-    <Image Include="assets\cuadrado.png" />
-    <Image Include="assets\nave.png" />
-    <Image Include="assets\rec.png" />
-    <Image Include="assets\rect.png" />
-    <Image Include="assets\rectangle.png" />
-    <Image Include="assets\roca.png" />
-    <Image Include="assets\personaje.png" />
-  </ItemGroup>
-  <ItemGroup>
     <ClInclude Include="engine\AssetManager.h" />
     <ClInclude Include="engine\BoxCollider.h" />
     <ClInclude Include="engine\Camera.h" />

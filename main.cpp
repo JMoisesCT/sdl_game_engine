@@ -63,11 +63,11 @@ int main(int argc, char* argv[]) {
     suelo->transform->y = 300.0f;
     suelo->transform->scaleX = 60.0f; // ~1920 px de ancho
     suelo->transform->scaleY = 3.0f;  // ~96 px de alto
-    SpriteRenderer* sueloSprite = suelo->addComponent<SpriteRenderer>("assets/personaje.png");
-    sueloSprite->setSourceRect(0, 0, 32, 32);
+    SpriteRenderer* sueloSprite = suelo->addComponent<SpriteRenderer>("assets/pixel_adventure/Terrain/Terrain (16x16).png");
+    sueloSprite->setSourceRect(0, 0, 16, 16);
     BoxCollider* sueloCol = suelo->addComponent<BoxCollider>();
-    sueloCol->width  = 32.0f * 60.0f; // coincide con el sprite estirado
-    sueloCol->height = 32.0f * 3.0f;
+    sueloCol->width  = 16.0f * 60.0f; // coincide con el sprite estirado
+    sueloCol->height = 16.0f * 3.0f;
 
     // ---- Camara que sigue al player ----
     GameObject* camara = scene.createGameObject("MainCamera");
@@ -114,7 +114,7 @@ int main(int argc, char* argv[]) {
 
         scene.update(dt);
 
-        SDL_SetRenderDrawColor(renderer, 20, 20, 30, 255);
+        SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
         SDL_RenderClear(renderer);
         scene.render();
         SDL_RenderPresent(renderer);
