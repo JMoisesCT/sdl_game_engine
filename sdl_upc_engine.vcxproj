@@ -22,6 +22,7 @@
     <ClCompile Include="engine\AssetManager.cpp" />
     <ClCompile Include="engine\BoxCollider.cpp" />
     <ClCompile Include="engine\Camera.cpp" />
+    <ClCompile Include="engine\Debugger.cpp" />
     <ClCompile Include="engine\FollowCamera.cpp" />
     <ClCompile Include="engine\Scene.cpp" />
     <ClCompile Include="engine\SpriteAnimator.cpp" />
@@ -33,6 +34,7 @@
     <ClInclude Include="engine\BoxCollider.h" />
     <ClInclude Include="engine\Camera.h" />
     <ClInclude Include="engine\Component.h" />
+    <ClInclude Include="engine\Debugger.h" />
     <ClInclude Include="engine\FollowCamera.h" />
     <ClInclude Include="engine\GameObject.h" />
     <ClInclude Include="engine\RigidBody2D.h" />

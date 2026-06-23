@@ -10,6 +10,7 @@
 #include "engine/FollowCamera.h"
 #include "engine/RigidBody2D.h"
 #include "engine/BoxCollider.h"
+#include "engine/Debugger.h"   // <-- opcional: quitar este include y las llamadas Debug:: lo elimina
 
 int main(int argc, char* argv[]) {
     if (!SDL_Init(SDL_INIT_VIDEO)) {
@@ -37,7 +38,7 @@ int main(int argc, char* argv[]) {
     // ---- Player con fisica ----
     GameObject* player = scene.createGameObject("Player");
     player->transform->x = 0.0f;
-    player->transform->y = -150.0f; // arranca en el aire para verlo caer
+    player->transform->y = -150.0f;
     player->transform->scaleX = 4.0f;
     player->transform->scaleY = 4.0f;
 
@@ -47,35 +48,36 @@ int main(int argc, char* argv[]) {
     anim->addAnimation("idle", {0, 1, 2, 3}, 6.0f);
     anim->addAnimation("walk", {8, 9, 10, 11, 12, 13, 14, 15}, 10.0f);
 
-    RigidBody2D* rb = player->addComponent<RigidBody2D>();   // gravedad + velocidad
+    RigidBody2D* rb = player->addComponent<RigidBody2D>();
 
     BoxCollider* col = player->addComponent<BoxCollider>();
-    col->width  = 32.0f * 4.0f; // 128: cubre el sprite escalado x4
+    col->width  = 32.0f * 4.0f;
     col->height = 32.0f * 4.0f;
 
     bool facingLeft = true;
     playerSprite->flipX = facingLeft;
 
-    // ---- Suelo: collider estatico (sin RigidBody) ----
-    // Le ponemos un sprite estirado solo para verlo (normalmente seria un tilemap).
+    // ---- Suelo ----
     GameObject* suelo = scene.createGameObject("Suelo");
     suelo->transform->x = 0.0f;
     suelo->transform->y = 300.0f;
-    suelo->transform->scaleX = 60.0f; // ~1920 px de ancho
-    suelo->transform->scaleY = 3.0f;  // ~96 px de alto
+    suelo->transform->scaleX = 60.0f;
+    suelo->transform->scaleY = 3.0f;
     SpriteRenderer* sueloSprite = suelo->addComponent<SpriteRenderer>("assets/pixel_adventure/Terrain/Terrain (16x16).png");
     sueloSprite->setSourceRect(0, 0, 16, 16);
     BoxCollider* sueloCol = suelo->addComponent<BoxCollider>();
-    sueloCol->width  = 16.0f * 60.0f; // coincide con el sprite estirado
+    sueloCol->width = 16.0f * 60.0f;
     sueloCol->height = 16.0f * 3.0f;
 
-    // ---- Camara que sigue al player ----
+    // ---- Camara ----
     GameObject* camara = scene.createGameObject("MainCamera");
     camara->addComponent<Camera>();
     FollowCamera* follow = camara->addComponent<FollowCamera>();
     follow->setTarget(player);
     follow->deadZoneWidth  = 200.0f;
-    follow->deadZoneHeight = 200.0f; // alto para que los saltos no muevan la camara
+    follow->deadZoneHeight = 200.0f;
+
+    Debug::setEnabled(true); // arranca mostrando colliders; F1 lo prende/apaga
 
     // ---- Bucle principal ----
     const float SPEED = 250.0f;
@@ -91,10 +93,11 @@ int main(int argc, char* argv[]) {
         while (SDL_PollEvent(&event)) {
             if (event.type == SDL_EVENT_QUIT) running = false;
 
-            // Salto: solo al presionar (no mantenido) y si esta apoyado.
-            if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat &&
-                event.key.scancode == SDL_SCANCODE_SPACE && rb->grounded) {
-                rb->velocityY = -650.0f;
+            if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat) {
+                if (event.key.scancode == SDL_SCANCODE_SPACE && rb->grounded)
+                    rb->velocityY = -650.0f;
+                if (event.key.scancode == SDL_SCANCODE_F1)
+                    Debug::toggle(); // prender/apagar el debug en caliente
             }
         }
 
@@ -103,7 +106,6 @@ int main(int argc, char* argv[]) {
         if (keys[SDL_SCANCODE_LEFT])  moveX -= 1.0f;
         if (keys[SDL_SCANCODE_RIGHT]) moveX += 1.0f;
 
-        // Movimiento horizontal por velocidad; la gravedad maneja el eje Y.
         rb->velocityX = moveX * SPEED;
 
         if      (moveX < 0.0f) facingLeft = false;
@@ -117,6 +119,11 @@ int main(int argc, char* argv[]) {
         SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
         SDL_RenderClear(renderer);
         scene.render();
+
+        // ---- Debug opcional (se dibuja encima de la escena) ----
+        Debug::drawColliders(scene);
+        Debug::drawDeadZone(scene, follow);
+
         SDL_RenderPresent(renderer);
     }
 

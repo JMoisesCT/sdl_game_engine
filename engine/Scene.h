@@ -28,8 +28,8 @@ public:
     }
 
     void update(float dt) {
-        for (auto& o : objects) o->update(dt); // mover (RigidBody, input, etc.)
-        resolveCollisions();                    // luego corregir choques
+        for (auto& o : objects) o->update(dt);
+        resolveCollisions();
     }
 
     void render() { for (auto& o : objects) o->render(); }
@@ -41,6 +41,7 @@ public:
     void    setActiveCamera(Camera* c) { activeCamera = c; }
 
     void registerCollider(BoxCollider* c) { colliders.push_back(c); }
+    const std::vector<BoxCollider*>& getColliders() const { return colliders; }
 
 private:
     void resolveCollisions(); // definida en Scene.cpp
@@ -49,5 +50,5 @@ private:
     AssetManager  assets;
     Camera*       activeCamera = nullptr;
     std::vector<std::unique_ptr<GameObject>> objects;
-    std::vector<BoxCollider*> colliders; // no somos dueno; viven en sus objetos
+    std::vector<BoxCollider*> colliders;
 };
