@@ -11,14 +11,12 @@
 
 class Scene;
 
-// Un GameObject TIENE componentes (modelo de Unity). Guarda uno por tipo,
-// indexado por su type_index: addComponent<T>() / getComponent<T>().
-
 class GameObject {
 public:
     std::string name;
     Scene* scene = nullptr;
     Transform* transform = nullptr;
+    bool alive = true; // false = marcado para destruir; la Scene lo barre al final del frame
 
     explicit GameObject(std::string n = "GameObject") : name(std::move(n)) {
         transform = addComponent<Transform>();
@@ -28,7 +26,6 @@ public:
     T* addComponent(Args&&... args) {
         static_assert(std::is_base_of<Component, T>::value,
                       "T debe heredar de Component");
-
         auto comp = std::make_unique<T>(std::forward<Args>(args)...);
         comp->gameObject = this;
         T* ptr = comp.get();
@@ -48,7 +45,6 @@ public:
     void update(float dt) { for (auto& [type, c] : components) c->update(dt); }
     void render()         { for (auto& [type, c] : components) c->render(); }
 
-    // Avisa a TODOS los componentes que hubo colision con 'other'.
     void notifyCollision(GameObject* other) {
         for (auto& [type, c] : components) c->onCollision(other);
     }

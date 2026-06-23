@@ -65,3 +65,19 @@ void Scene::resolveCollisions() {
         }
     }
 }
+
+#include <algorithm>
+
+void Scene::removeDeadObjects() {
+    // 1) Quitar del registro los colliders de objetos muertos (antes de borrarlos).
+    colliders.erase(
+        std::remove_if(colliders.begin(), colliders.end(),
+            [](BoxCollider* c){ return !c->gameObject->alive; }),
+        colliders.end());
+
+    // 2) Eliminar los objetos muertos (esto libera sus componentes).
+    objects.erase(
+        std::remove_if(objects.begin(), objects.end(),
+            [](const std::unique_ptr<GameObject>& o){ return !o->alive; }),
+        objects.end());
+}

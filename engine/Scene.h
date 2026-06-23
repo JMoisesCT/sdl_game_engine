@@ -6,12 +6,9 @@
 #include "GameObject.h"
 #include "AssetManager.h"
 
-struct SDL_Renderer; // declaracion adelantada
+struct SDL_Renderer;
 class Camera;
 class BoxCollider;
-
-// Contiene los objetos, posee el AssetManager, conoce la camara activa y
-// ejecuta la fase de fisica (deteccion + resolucion de colisiones).
 
 class Scene {
 public:
@@ -27,9 +24,18 @@ public:
         return ptr;
     }
 
+    // Marca un objeto para destruirse. No lo borra en el acto: se elimina al
+    // final del frame (asi es seguro llamarlo desde un update o una colision).
+    void destroy(GameObject* obj) { if (obj) obj->alive = false; }
+
     void update(float dt) {
-        for (auto& o : objects) o->update(dt);
+        // Conteo fijo: los objetos que se creen durante el frame (spawners) se
+        // agregan al final y NO se actualizan hasta el siguiente frame.
+        size_t count = objects.size();
+        for (size_t i = 0; i < count; ++i) objects[i]->update(dt);
+
         resolveCollisions();
+        removeDeadObjects();
     }
 
     void render() { for (auto& o : objects) o->render(); }
@@ -44,7 +50,8 @@ public:
     const std::vector<BoxCollider*>& getColliders() const { return colliders; }
 
 private:
-    void resolveCollisions(); // definida en Scene.cpp
+    void resolveCollisions();  // Scene.cpp
+    void removeDeadObjects();  // Scene.cpp
 
     SDL_Renderer* renderer = nullptr;
     AssetManager  assets;
