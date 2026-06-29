@@ -46,13 +46,16 @@ public:
 
         if (sprite) { if (moveX < 0) sprite->flipX = true; else if (moveX > 0) sprite->flipX = false; }
 
-        // Animacion segun el estado fisico: saltando/cayendo en el aire, corriendo
-        // en suelo si se mueve, e idle en cualquier otro caso.
+        // Animacion segun el estado fisico. Evaluamos PRIMERO si esta en el suelo: si
+        // lo esta, solo elegimos entre run/idle sin mirar velocityY (la gravedad lo
+        // deja ligeramente positivo cada frame y dispararia "fall" por error). Usamos
+        // el "coyote" como suelo SUAVIZADO: el grounded crudo de la fisica parpadea
+        // sub-pixel cada pocos frames, y como play() reinicia la animacion al cambiar
+        // de nombre, ese parpadeo entrecortaba "run". El coyote ignora ese parpadeo.
         if (anim && rb) {
-            if      (!rb->grounded && rb->velocityY < 0.0f) anim->play("jump");
-            else if (!rb->grounded && rb->velocityY > 0.0f) anim->play("fall");
-            else if (rb->grounded && moveX != 0.0f)         anim->play("run");
-            else                                            anim->play("idle");
+            bool onGround = coyote > 0.0f;
+            if (onGround) anim->play(moveX != 0.0f ? "run" : "idle");
+            else          anim->play(rb->velocityY < 0.0f ? "jump" : "fall");
         }
     }
 private:
