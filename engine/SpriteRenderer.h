@@ -10,6 +10,7 @@ struct SDL_Texture; // declaracion adelantada: SDL solo aparece en el .cpp
 
 class SpriteRenderer : public Component {
 public:
+    SpriteRenderer() = default;               // sin textura inicial: la asigna el animator
     explicit SpriteRenderer(std::string imagePath);
 
     bool flipX = false; // espejo horizontal (mirar a izquierda/derecha)
@@ -17,6 +18,10 @@ public:
 
     void awake() override;
     void render() override;
+
+    // Cambia que textura se dibuja (la usa el SpriteAnimator al cambiar de animacion).
+    // La textura sigue siendo propiedad del AssetManager: solo la tomamos prestada.
+    void setTexture(SDL_Texture* tex);
 
     // Dibujar solo una porcion de la imagen (un frame del spritesheet).
     void setSourceRect(float x, float y, float w, float h) {

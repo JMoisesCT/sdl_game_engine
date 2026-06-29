@@ -10,7 +10,15 @@ SpriteRenderer::SpriteRenderer(std::string imagePath)
     : path(std::move(imagePath)) {}
 
 void SpriteRenderer::awake() {
+    if (path.empty()) return; // sin textura inicial: la pondra el animator con setTexture
     texture = gameObject->scene->getAssets().loadTexture(path);
+    if (texture) {
+        SDL_GetTextureSize(texture, &width, &height);
+    }
+}
+
+void SpriteRenderer::setTexture(SDL_Texture* tex) {
+    texture = tex; // prestada: el dueno sigue siendo el AssetManager
     if (texture) {
         SDL_GetTextureSize(texture, &width, &height);
     }

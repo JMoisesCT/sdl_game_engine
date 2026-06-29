@@ -45,7 +45,15 @@ public:
         jumpPrev = jumpNow;
 
         if (sprite) { if (moveX < 0) sprite->flipX = true; else if (moveX > 0) sprite->flipX = false; }
-        if (anim) anim->play(moveX != 0.0f ? "walk" : "idle");
+
+        // Animacion segun el estado fisico: saltando/cayendo en el aire, corriendo
+        // en suelo si se mueve, e idle en cualquier otro caso.
+        if (anim && rb) {
+            if      (!rb->grounded && rb->velocityY < 0.0f) anim->play("jump");
+            else if (!rb->grounded && rb->velocityY > 0.0f) anim->play("fall");
+            else if (rb->grounded && moveX != 0.0f)         anim->play("run");
+            else                                            anim->play("idle");
+        }
     }
 private:
     bool  jumpPrev = false;
@@ -57,10 +65,16 @@ void buildPlatformer(Scene& scene) {
     GameObject* player = scene.createGameObject("Player");
     player->transform->y = -150.0f;
     player->transform->scaleX = player->transform->scaleY = 4.0f;
-    player->addComponent<SpriteRenderer>("assets/personaje.png");
-    auto anim = player->addComponent<SpriteAnimator>(32, 32, 8);
-    anim->addAnimation("idle", {0, 1, 2, 3}, 6.0f);
-    anim->addAnimation("walk", {8, 9, 10, 11, 12, 13, 14, 15}, 10.0f);
+    // Sin textura inicial: cada animacion del Mask Dude es un .png aparte (una tira
+    // horizontal de frames de 32x32), y el animator decide cual dibujar segun el estado.
+    player->addComponent<SpriteRenderer>();
+    auto anim = player->addComponent<SpriteAnimator>(32, 32, 1);
+    const std::string mask = "assets/pixel_adventure/Main Characters/Mask Dude/";
+    anim->addStripAnimation("idle", mask + "Idle (32x32).png", 32, 32, 20.0f);
+    anim->addStripAnimation("run",  mask + "Run (32x32).png",  32, 32, 20.0f);
+    anim->addStripAnimation("jump", mask + "Jump (32x32).png", 32, 32, 20.0f);
+    anim->addStripAnimation("fall", mask + "Fall (32x32).png", 32, 32, 20.0f);
+    anim->play("idle");
     player->addComponent<RigidBody2D>(); // con gravedad
     auto col = player->addComponent<BoxCollider>();
     col->width = 64.0f; col->height = 110.0f; col->offsetY = 8.0f; // ajustado al cuerpo

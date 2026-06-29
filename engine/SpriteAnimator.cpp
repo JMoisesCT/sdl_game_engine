@@ -1,13 +1,52 @@
 #include "SpriteAnimator.h"
 #include "GameObject.h"
+#include "Scene.h"
 #include "SpriteRenderer.h"
+
+#include <SDL3/SDL.h>
 
 SpriteAnimator::SpriteAnimator(int frameWidth, int frameHeight, int sheetColumns)
     : frameW(frameWidth), frameH(frameHeight), columns(sheetColumns) {}
 
 void SpriteAnimator::addAnimation(const std::string& name, const std::vector<int>& frames,
                                   float fps, bool loop) {
-    clips[name] = Clip{ frames, fps, loop };
+    // Modo hoja unica: sin textura propia (usa la del SpriteRenderer) y con el
+    // tamano/columnas por defecto del animator.
+    Clip clip;
+    clip.texture = nullptr;
+    clip.frameW  = frameW;
+    clip.frameH  = frameH;
+    clip.columns = columns;
+    clip.frames  = frames;
+    clip.fps     = fps;
+    clip.loop    = loop;
+    clips[name]  = std::move(clip);
+}
+
+void SpriteAnimator::addStripAnimation(const std::string& name, const std::string& path,
+                                       int fw, int fh, float fps, bool loop) {
+    // Cada tira es su propia textura. El AssetManager cachea por ruta, asi que
+    // clips con la misma ruta comparten textura y con rutas distintas no.
+    SDL_Texture* tex = gameObject->scene->getAssets().loadTexture(path);
+
+    int count = 1;
+    if (tex && fw > 0) {
+        float w = 0.0f, h = 0.0f;
+        SDL_GetTextureSize(tex, &w, &h);
+        count = (int)(w / fw); // deducimos los cuadros del ancho (una sola fila)
+        if (count < 1) count = 1;
+    }
+
+    Clip clip;
+    clip.texture = tex;
+    clip.frameW  = fw;
+    clip.frameH  = fh;
+    clip.columns = count; // una sola fila: columnas = total de cuadros
+    clip.frames.reserve(count);
+    for (int i = 0; i < count; ++i) clip.frames.push_back(i);
+    clip.fps  = fps;
+    clip.loop = loop;
+    clips[name] = std::move(clip);
 }
 
 void SpriteAnimator::play(const std::string& name) {
@@ -24,7 +63,7 @@ void SpriteAnimator::update(float dt) {
     if (!sprite || current.empty()) return;
 
     Clip& clip = clips[current];
-    if (clip.frames.empty() || clip.fps <= 0.0f) return;
+    if (clip.frames.empty() || clip.fps <= 0.0f) { applyFrame(); return; }
 
     timer += dt;
     float frameTime = 1.0f / clip.fps;
@@ -48,12 +87,19 @@ void SpriteAnimator::update(float dt) {
 void SpriteAnimator::applyFrame() {
     if (!sprite || current.empty()) return;
     Clip& clip = clips[current];
-    if (clip.frames.empty()) return;
+    if (clip.frames.empty() || clip.columns <= 0) return;
+
+    // Si el clip trae su propia textura (modo una tira por archivo), asegurarse de
+    // que el SpriteRenderer la este dibujando. Solo se reasigna al cambiar de clip.
+    if (clip.texture && clip.texture != appliedTexture) {
+        sprite->setTexture(clip.texture);
+        appliedTexture = clip.texture;
+    }
 
     int cell = clip.frames[currentIndex];
-    int col  = cell % columns;  // posicion dentro de la hoja
-    int row  = cell / columns;
+    int col  = cell % clip.columns;  // posicion dentro de la hoja
+    int row  = cell / clip.columns;
 
-    sprite->setSourceRect((float)(col * frameW), (float)(row * frameH),
-                          (float)frameW, (float)frameH);
+    sprite->setSourceRect((float)(col * clip.frameW), (float)(row * clip.frameH),
+                          (float)clip.frameW, (float)clip.frameH);
 }
