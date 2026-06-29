@@ -27,6 +27,7 @@
     <ClCompile Include="engine\Scene.cpp" />
     <ClCompile Include="engine\SpriteAnimator.cpp" />
     <ClCompile Include="engine\SpriteRenderer.cpp" />
+    <ClCompile Include="engine\TilemapRenderer.cpp" />
     <ClCompile Include="game\Platformer.cpp" />
     <ClCompile Include="game\Shooter.cpp" />
     <ClCompile Include="game\TopDown.cpp" />
@@ -44,6 +45,7 @@
     <ClInclude Include="engine\Scene.h" />
     <ClInclude Include="engine\SpriteAnimator.h" />
     <ClInclude Include="engine\SpriteRenderer.h" />
+    <ClInclude Include="engine\TilemapRenderer.h" />
     <ClInclude Include="engine\Transform.h" />
     <ClInclude Include="game\Platformer.h" />
     <ClInclude Include="game\Shooter.h" />
