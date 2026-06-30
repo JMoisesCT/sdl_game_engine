@@ -5,6 +5,7 @@
 
 # --- Documentacion / contexto: NO se sube (solo el motor, no los prompts) ---
 *.md
+!README.md
 # Si en el futuro quieres subir uno publico, descomenta y ajusta:
 # !README.md
 
