@@ -12,9 +12,6 @@ de objetos/componentes que se actualiza y dibuja.
 Este repositorio es la **base de un curso** de desarrollo de videojuegos. Cada sesión suma una
 capacidad nueva al motor.
 
-> ¿Buscas el detalle interno (capas, flujo de un frame, ownership)? Está en
-> [ARCHITECTURE.md](ARCHITECTURE.md).
-
 ---
 
 ## Características
@@ -37,6 +34,26 @@ Lo que el motor ya hace hoy:
 - **Debugger conmutable**: dibujo de colliders, zona muerta y primitivas (se prende/apaga en
   caliente).
 - **`AssetManager`**: dueño de las texturas; los renderers solo las piden prestadas.
+
+---
+
+## Arquitectura
+
+Idea general (en pocas líneas):
+
+- **Motor por capas**, de lo más cercano al alumno a lo más cercano a SDL:
+  juego/ejemplos (`game/`, `main.cpp`) → gameplay (`GameObject` + componentes) →
+  subsistemas (sprites, cámara, física, assets) → núcleo (`Scene`) → SDL3 (aislado).
+- **Modelo de componentes estilo Unity**: un `GameObject` no hereda comportamiento, lo
+  **compone** con `addComponent<T>()` / `getComponent<T>()`. Todo objeto nace con un
+  `Transform` (que marca su **centro**). Los componentes siguen el ciclo de vida
+  `awake` / `start` / `update` / `render` / `onCollision`.
+- **El alumno mantiene el control**: el motor no invierte el bucle. Tú escribes tu `main`
+  de SDL y en cada frame "bombeas" la escena (`scene->update(dt)` y `scene->render()`).
+  `Scene::update` actualiza objetos, resuelve la física AABB y barre los marcados con
+  `destroy()`.
+- **SDL queda escondido**: `<SDL3/SDL.h>` vive en los `.cpp` (y muy pocos headers), nunca
+  en los headers de composición; donde hace falta un tipo de SDL se usa forward declaration.
 
 ---
 
@@ -182,10 +199,33 @@ ruta en el código.)
 
 ---
 
-## Estado y roadmap
+## Roadmap
 
-Proyecto en **desarrollo activo**: el motor crece sesión a sesión a lo largo del curso. Lo
-hecho y lo pendiente está en [ROADMAP.md](ROADMAP.md).
+Proyecto en **desarrollo activo**: el motor crece sesión a sesión a lo largo del curso.
+
+**Hecho:**
+
+- Núcleo: `Component`, `GameObject`, `Transform`, `Scene`, `AssetManager`.
+- Render: `SpriteRenderer` (recortes, flip, anclaje al centro), `SpriteAnimator`.
+- Cámara: `Camera` (zoom, mundo→pantalla) y `FollowCamera` (zona muerta + suavizado).
+- Física: `RigidBody2D` (gravedad, `grounded`), `BoxCollider` (AABB, triggers) y fase de
+  colisiones en `Scene`.
+- Ciclo de vida: `destroy` diferido, `Lifetime`, `Spawner`.
+- `TilemapRenderer` (código / archivo propio / Tiled JSON) y `Debugger` conmutable.
+- Tres ejemplos: platformer, top-down y shooter (`1`/`2`/`3`).
+
+**Pendiente (sin orden fijo):**
+
+- `Health` / `Damageable` (vida y condición de derrota).
+- Clase `Input` consultable (`isKeyDown` / `wasPressed`).
+- `TextRenderer` + UI básica (SDL3_ttf): HUD, puntaje, diálogos.
+- Sistema de tags o capas (reemplazar el filtro por `name`).
+- Audio (SDL3_mixer); mejoras de física (one-way platforms, broad-phase, fricción/rebote);
+  handles seguros; parenting de `Transform`; partículas.
+
+**Limitaciones conocidas:** colisiones O(n²) (bien para decenas de objetos, no miles); la
+resolución por pares puede temblar con colliders apilados; no hay desregistro automático de
+punteros a objetos destruidos.
 
 ---
 
