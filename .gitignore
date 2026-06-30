@@ -406,7 +406,8 @@ FodyWeavers.xsd
 # JetBrains Rider
 *.sln.iml
 
-# vcpkg: el arbol instalado se regenera al restaurar el manifiesto (vcpkg.json)
+# vcpkg: ya no se usa (nlohmann/json viene vendorizada en engine/third_party);
+# se ignora cualquier arbol residual por si quedo de antes.
 vcpkg_installed/
 
 # --- Tiled (editor de mapas) ---

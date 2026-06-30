@@ -31,7 +31,7 @@ Lo que el motor ya hace hoy:
 - **Ciclo de vida**: `destroy` diferido, `Lifetime` (autodestrucción por tiempo) y `Spawner`.
 - **Tilemap**: `TilemapRenderer` (grilla + tileset) con colisión de tiles, cargable desde
   **código**, desde un **archivo de texto propio** (`.map`) o desde **Tiled JSON** con tileset
-  embebido (vía `nlohmann-json`).
+  embebido (vía **nlohmann/json**, que viene incluida en el repo en `engine/third_party/`).
 - **Debugger conmutable**: dibujo de colliders, zona muerta y primitivas (se prende/apaga en
   caliente).
 - **`AssetManager`**: dueño de las texturas; los renderers solo las piden prestadas.
@@ -74,7 +74,9 @@ sdl_upc_engine/
 │   ├── RigidBody2D.h  BoxCollider.*   # física AABB
 │   ├── TilemapRenderer.*   #   grilla de tiles (código / archivo / Tiled JSON)
 │   ├── Lifetime.h  Spawner.h
-│   └── Debugger.*          #   ayudas visuales de depuración
+│   ├── Debugger.*          #   ayudas visuales de depuración
+│   └── third_party/        #   librerías de terceros incluidas (vendored)
+│       └── nlohmann/json.hpp  # nlohmann/json single-include (MIT), para Tiled JSON
 ├── game/                   # Lógica de los EJEMPLOS (lado del juego, no del motor)
 │   ├── Platformer.{h,cpp}  #   ejemplo 1
 │   ├── TopDown.{h,cpp}     #   ejemplo 2
@@ -84,8 +86,7 @@ sdl_upc_engine/
 │   ├── pixel_adventure/    #   sprites del pack Pixel Adventure (platformer)
 │   ├── ninja_adventure/    #   sprites y tileset del pack Ninja Adventure (top-down)
 │   └── maps/               #   niveles de Tiled (.json/.tmx) y mapa propio (.map)
-├── sdl_upc_engine.vcxproj  # Proyecto de Visual Studio (un solo ejecutable)
-└── vcpkg.json              # Manifiesto vcpkg (solo nlohmann-json)
+└── sdl_upc_engine.vcxproj  # Proyecto de Visual Studio (un solo ejecutable)
 ```
 
 `engine/` es **genérico**: nunca contiene nombres de un juego concreto (nada de "Player" o
@@ -110,9 +111,10 @@ ejecutable de consola). No hay solución `.sln` ni `CMakeLists.txt` en el repo: 
 
   > Si instalaste SDL3 en otra ruta, ajusta `AdditionalIncludeDirectories`,
   > `AdditionalLibraryDirectories` y el `PostBuildEvent` del `.vcxproj`.
-- **vcpkg en modo manifiesto** para `nlohmann-json` (la única dependencia del manifiesto;
-  SDL3 **no** viene de vcpkg). Visual Studio la restaura sola al abrir el proyecto si tienes
-  la integración de vcpkg activa.
+- **nlohmann/json** (para leer mapas de Tiled en JSON) **ya viene incluida en el repo**, en
+  `engine/third_party/nlohmann/json.hpp` (single-include, header-only). **No requiere instalar
+  nada ni vcpkg**: al clonar el repo la tienes lista. El proyecto añade `engine/third_party`
+  como *include directory*, así que en el código basta `#include <nlohmann/json.hpp>`.
 
 ### Pasos
 
@@ -231,7 +233,16 @@ punteros a objetos destruidos.
 
 ---
 
-## Créditos de assets
+## Créditos y licencias de terceros
+
+### Librerías
+
+- **[nlohmann/json](https://github.com/nlohmann/json)** de **Niels Lohmann** — librería
+  *JSON for Modern C++* usada para leer los mapas de Tiled. Licencia **MIT**. Se incluye
+  **vendorizada** en el repo (`engine/third_party/nlohmann/json.hpp`, single-include), con su
+  cabecera de licencia MIT intacta; no requiere instalación.
+
+### Assets
 
 - **[Pixel Adventure](https://pixelfrog-assets.itch.io/pixel-adventure-1)** de **Pixel Frog**
   (itch.io) — sprites del ejemplo *platformer*. Respeta su licencia si reutilizas o
