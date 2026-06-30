@@ -98,7 +98,7 @@ void buildPlatformer(Scene& scene) {
     // se espera en assets/maps/ y su "image" (relativa al .json) debe apuntar al tileset
     // accesible desde ahi (p.ej. ../pixel_adventure/Terrain/...). Los tiles solidos se
     // marcan en Tiled con una propiedad booleana "solid"=true en el tileset.
-    if (!tm->loadFromTiledJson("assets/maps/level1.json"))
+    if (!tm->loadFromTiledJson("assets/maps/platformer_level1.json"))
         SDL_Log("buildPlatformer: no se pudo cargar assets/maps/level1.json");
     // Alternativa: nuestro formato .map propio (queda como referencia).
     // if (!tm->loadFromFile("assets/maps/level1.map"))

@@ -407,3 +407,9 @@ FodyWeavers.xsd
 
 # vcpkg: el arbol instalado se regenera al restaurar el manifiesto (vcpkg.json)
 vcpkg_installed/
+
+# --- Tiled (editor de mapas) ---
+# Los alumnos editan los mapas, asi que SI se suben: el mapa (.json/.tmx),
+# el tileset (.png) y el .tiled-project (config compartida del editor).
+# Solo se ignora el estado local de cada editor:
+*.tiled-session
