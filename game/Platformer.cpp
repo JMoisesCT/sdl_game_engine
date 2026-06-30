@@ -14,8 +14,6 @@
 #include "../engine/Camera.h"
 #include "../engine/FollowCamera.h"
 
-#include <vector>
-
 // Izquierda/derecha + salto con espacio. Detecta flanco de tecla con memoria
 // del frame anterior para que el salto no se dispare multiples veces.
 class PlatformerController : public Component {
@@ -87,28 +85,17 @@ void buildPlatformer(Scene& scene) {
     player->addComponent<PlatformerController>();
 
     // Suelo y plataformas con un TilemapRenderer real (reemplaza el cuadrado estirado).
-    // Tileset Pixel Adventure: Terrain (16x16).png mide 352x176 -> 22 columnas de 16px.
-    const int E = -1; // celda vacia
-    const int G = 7;  // tile de suelo: col 7, fila 0 del tileset (bloque con cesped).
-                      //   <-- AJUSTA este indice si quieres otro tile del Terrain.
-    const int mapW = 30, mapH = 10;
-    std::vector<int> mapa(mapW * mapH, E);
-    for (int col = 0; col < mapW; ++col) { // dos filas inferiores: suelo a lo ancho
-        mapa[8 * mapW + col] = G;
-        mapa[9 * mapW + col] = G;
-    }
-    for (int col = 12; col <= 16; ++col)   // plataforma flotante en la fila 5
-        mapa[5 * mapW + col] = G;
-
+    // El mapa se carga desde un archivo de texto (contenido del juego, en assets/);
+    // se puede editar a mano sin recompilar. El tileset, tile, columnas y tiles solidos
+    // van en la cabecera del .map. Ver assets/maps/level1.map.
     GameObject* tilemap = scene.createGameObject("Tilemap");
     // El Transform marca el ORIGEN del mapa (esquina superior izquierda de la celda 0,0).
     tilemap->transform->x = -960.0f;
     tilemap->transform->y = -262.0f; // colocado para que el suelo quede en pantalla (~y=250)
     tilemap->transform->scaleX = tilemap->transform->scaleY = 4.0f; // 16px -> 64px por celda
-    auto tm = tilemap->addComponent<TilemapRenderer>(
-        "assets/pixel_adventure/Terrain/Terrain (16x16).png", 16, 16, 22);
-    tm->setMap(mapa, mapW, mapH);
-    tm->setSolid(G); // marca el tile de suelo como solido -> genera un collider por celda
+    auto tm = tilemap->addComponent<TilemapRenderer>(); // modo archivo: el tileset lo da el .map
+    if (!tm->loadFromFile("assets/maps/level1.map"))
+        SDL_Log("buildPlatformer: no se pudo cargar assets/maps/level1.map");
 
     GameObject* cam = scene.createGameObject("MainCamera");
     cam->addComponent<Camera>();

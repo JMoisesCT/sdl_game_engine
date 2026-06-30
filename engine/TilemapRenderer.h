@@ -24,10 +24,18 @@ struct SDL_Texture; // declaracion adelantada: SDL solo aparece en el .cpp
 
 class TilemapRenderer : public Component {
 public:
+    TilemapRenderer() = default; // modo archivo: el tileset lo define loadFromFile
     TilemapRenderer(std::string tilesetPath, int tileW, int tileH, int tilesetColumns);
 
     // Define el mapa: indices en orden row-major, con su ancho (columnas) y alto (filas).
     void setMap(const std::vector<int>& tiles, int mapWidth, int mapHeight);
+
+    // Carga el mapa COMPLETO desde un archivo de texto (tileset, tile, columns, solid
+    // y la grilla). Deja el componente en el mismo estado que el modo en codigo.
+    // Devuelve false (y hace SDL_Log) si el archivo falla o la cabecera/grilla es
+    // invalida; en ese caso no deja el componente a medio configurar. Ver el .cpp
+    // para el formato del archivo.
+    bool loadFromFile(const std::string& path);
 
     // Marca un indice de tile como solido (genera colision). Se puede llamar varias veces.
     void setSolid(int tileIndex);
