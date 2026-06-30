@@ -31,16 +31,25 @@ void SpriteAnimator::addStripAnimation(const std::string& name, const std::strin
 
 void SpriteAnimator::addRowAnimation(const std::string& name, const std::string& path,
                                      int fw, int fh, int row, float fps, bool loop) {
+    // Atajo: una fila es una linea con eje Row.
+    addLineAnimation(name, path, fw, fh, row, StripAxis::Row, fps, loop);
+}
+
+void SpriteAnimator::addLineAnimation(const std::string& name, const std::string& path,
+                                      int fw, int fh, int index, StripAxis axis,
+                                      float fps, bool loop) {
     // El AssetManager cachea por ruta, asi que clips con la misma ruta comparten
-    // textura (p.ej. varias filas del mismo sheet) y con rutas distintas no.
+    // textura (p.ej. varias lineas del mismo sheet) y con rutas distintas no.
     SDL_Texture* tex = gameObject->scene->getAssets().loadTexture(path);
 
-    int cols = 1;
-    if (tex && fw > 0) {
+    int cols = 1, rows = 1; // celdas por eje de TODA la hoja
+    if (tex) {
         float w = 0.0f, h = 0.0f;
         SDL_GetTextureSize(tex, &w, &h);
-        cols = (int)(w / fw); // frames por fila = ancho de la textura / ancho de cuadro
+        if (fw > 0) cols = (int)(w / fw);
+        if (fh > 0) rows = (int)(h / fh);
         if (cols < 1) cols = 1;
+        if (rows < 1) rows = 1;
     }
 
     Clip clip;
@@ -48,9 +57,18 @@ void SpriteAnimator::addRowAnimation(const std::string& name, const std::string&
     clip.frameW  = fw;
     clip.frameH  = fh;
     clip.columns = cols; // columnas de TODA la hoja, para mapear celda -> col/fila
-    clip.frames.reserve(cols);
-    // Las celdas de la fila pedida: cell = row * cols + i => col = i, fila = row.
-    for (int i = 0; i < cols; ++i) clip.frames.push_back(row * cols + i);
+
+    // La numeracion de celdas es row-major: cell = fila * cols + col, y luego
+    // applyFrame deduce col = cell % cols, fila = cell / cols.
+    if (axis == StripAxis::Row) {
+        // Fila fija 'index'; los frames avanzan por las columnas.
+        clip.frames.reserve(cols);
+        for (int col = 0; col < cols; ++col) clip.frames.push_back(index * cols + col);
+    } else {
+        // Columna fija 'index'; los frames avanzan por las filas.
+        clip.frames.reserve(rows);
+        for (int row = 0; row < rows; ++row) clip.frames.push_back(row * cols + index);
+    }
     clip.fps  = fps;
     clip.loop = loop;
     clips[name] = std::move(clip);

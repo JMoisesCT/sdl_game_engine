@@ -8,20 +8,25 @@ struct SDL_Texture; // declaracion adelantada: SDL solo aparece en el .cpp
 
 class SpriteRenderer;
 
+// Orientacion de una "linea" (fila o columna) de un sheet en grilla para
+// addLineAnimation: la linea es la animacion y sus frames recorren el eje perpendicular.
+enum class StripAxis { Row, Column };
+
 // Reproduce animaciones cuadro a cuadro. NO dibuja: calcula el frame actual y se lo
 // pasa al SpriteRenderer del mismo objeto (textura + recorte).
 //
-// Soporta tres formas de organizar los frames:
+// Soporta varias formas de organizar los frames:
 //  - Hoja unica (addAnimation): todas las animaciones viven en la textura del
 //    SpriteRenderer; las celdas se numeran por filas (con 8 columnas, fila 0 = 0..7).
 //  - Una tira por archivo (addStripAnimation): cada animacion trae su PROPIA textura,
 //    una sola fila horizontal de frames; el animator cambia la textura del
 //    SpriteRenderer al activar el clip. Como el AssetManager cachea por ruta, si dos
 //    clips usan el mismo archivo comparten textura sin codigo extra.
-//  - Una FILA de un sheet (addRowAnimation): la animacion toma una fila concreta de
-//    un sheet en grilla (la fila suele ser la direccion en juegos cenitales). Carga
-//    la textura del archivo, deduce los frames por fila del ancho y usa las celdas de
-//    la fila indicada. addStripAnimation es el caso particular fila = 0.
+//  - Una LINEA de un sheet (addLineAnimation): la animacion es una fila o una columna
+//    de un sheet en grilla y sus frames recorren el otro eje. Util para sheets
+//    direccionales (cenitales): en unos packs la direccion es la fila y los frames van
+//    por columnas; en otros (p.ej. Ninja Adventure) la direccion es la columna y los
+//    frames van por filas. addRowAnimation es el atajo del caso fila.
 
 class SpriteAnimator : public Component {
 public:
@@ -38,10 +43,19 @@ public:
     void addStripAnimation(const std::string& name, const std::string& path,
                            int frameW, int frameH, float fps, bool loop = true);
 
-    // Modo una fila de un sheet: carga la textura de esa ruta, deduce los frames por
-    // fila del ancho (frames = anchoTextura / frameW) y usa SOLO las celdas de la fila
-    // indicada (offset vertical = row * frameH). Util para sheets cenitales donde cada
-    // fila es una direccion. Generaliza addStripAnimation (que es row = 0).
+    // Modo una linea de un sheet: carga la textura de esa ruta y arma la animacion con
+    // una fila o columna (segun 'axis') de un sheet en grilla; los frames recorren el
+    // eje perpendicular:
+    //   - axis == Row:    la animacion es la fila 'index'; frames = anchoTextura/frameW
+    //                     (recorren las columnas); offset vertical del recorte = index*frameH.
+    //   - axis == Column: la animacion es la columna 'index'; frames = altoTextura/frameH
+    //                     (recorren las filas);  offset horizontal del recorte = index*frameW.
+    void addLineAnimation(const std::string& name, const std::string& path,
+                          int frameW, int frameH, int index, StripAxis axis,
+                          float fps, bool loop = true);
+
+    // Atajo de addLineAnimation con StripAxis::Row (compatibilidad). La animacion es la
+    // fila 'row' y sus frames recorren las columnas. addStripAnimation es el caso row = 0.
     void addRowAnimation(const std::string& name, const std::string& path,
                          int frameW, int frameH, int row, float fps, bool loop = true);
 

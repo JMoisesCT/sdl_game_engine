@@ -53,50 +53,11 @@ public:
 };
 
 void buildTopDown(Scene& scene) {
-    // --- NinjaGreen: mapeo de filas del sheet a direcciones --------------------
-    // Walk.png e Idle.png miden 128x128 = grilla 8x8 de cuadros de 16x16 (verificado
-    // abriendo los PNG). Las 4 primeras filas son las direcciones; las demas no se usan.
-    // El orden de filas SUELE ser este en Ninja Adventure, pero VERIFICALO abriendo el
-    // sprite: si el ninja mira al lado equivocado, esto es LO PRIMERO a corregir.
-    const int   FRAME     = 16; // tamano de cada cuadro en el sheet (128 / 8 = 16)
-    const int   ROW_DOWN  = 0;
-    const int   ROW_UP    = 1;
-    const int   ROW_LEFT  = 2;
-    const int   ROW_RIGHT = 3;
-    const float ANIM_FPS  = 9.0f;
-
-    const std::string WALK = "assets/ninja_adventure/Actor/CharacterAnimated/NinjaGreen/Separate/Walk.png";
-    const std::string IDLE = "assets/ninja_adventure/Actor/CharacterAnimated/NinjaGreen/Separate/Idle.png";
-
-    GameObject* player = scene.createGameObject("Player");
-    player->transform->x = 0.0f;
-    player->transform->y = 0.0f;
-    player->transform->scaleX = player->transform->scaleY = 3.0f; // 16px -> 48px en mundo
-    player->addComponent<SpriteRenderer>(); // sin textura: la pone el SpriteAnimator
-
-    // El tercer parametro (columnas de hoja) no se usa en modo addRowAnimation.
-    auto anim = player->addComponent<SpriteAnimator>(FRAME, FRAME, 8);
-    anim->addRowAnimation("walk_down",  WALK, FRAME, FRAME, ROW_DOWN,  ANIM_FPS);
-    anim->addRowAnimation("walk_up",    WALK, FRAME, FRAME, ROW_UP,    ANIM_FPS);
-    anim->addRowAnimation("walk_left",  WALK, FRAME, FRAME, ROW_LEFT,  ANIM_FPS);
-    anim->addRowAnimation("walk_right", WALK, FRAME, FRAME, ROW_RIGHT, ANIM_FPS);
-    anim->addRowAnimation("idle_down",  IDLE, FRAME, FRAME, ROW_DOWN,  ANIM_FPS);
-    anim->addRowAnimation("idle_up",    IDLE, FRAME, FRAME, ROW_UP,    ANIM_FPS);
-    anim->addRowAnimation("idle_left",  IDLE, FRAME, FRAME, ROW_LEFT,  ANIM_FPS);
-    anim->addRowAnimation("idle_right", IDLE, FRAME, FRAME, ROW_RIGHT, ANIM_FPS);
-    anim->play("idle_down");
-
-    auto rb = player->addComponent<RigidBody2D>();
-    rb->gravityScale = 0.0f; // cenital: sin gravedad
-
-    auto col = player->addComponent<BoxCollider>();
-    // El ninja no llena los 16x16: cuerpo mas chico y corrido hacia los pies. En
-    // unidades de mundo (el sprite completo mide 16*3 = 48 px). Calibrar con F1.
-    col->width = 22.0f; col->height = 26.0f; col->offsetY = 8.0f;
-
-    player->addComponent<TopDownController>();
-
     // --- Mundo: piso cargado desde Tiled (JSON) ---------------------------------
+    // OJO AL ORDEN: el dibujo sigue el orden de creacion de los GameObjects, asi que
+    // el tilemap se crea PRIMERO para que el player (creado despues) quede ENCIMA del
+    // piso. Si se crea despues, el piso tapa al personaje.
+    //
     // El nivel se exporta desde Tiled (capa de tiles + tileset embebido) y vive en
     // assets/maps/. Su "image" apunta al TilesetFloor de Ninja Adventure. El tile,
     // las columnas y los tiles solidos los define el propio .json: aqui no se tocan.
@@ -105,7 +66,7 @@ void buildTopDown(Scene& scene) {
 
     GameObject* world = scene.createGameObject("World");
     // El Transform marca el ORIGEN del mapa (esquina superior izquierda de la celda 0,0).
-    world->transform->scaleX = world->transform->scaleY = 3.0f; // tile 16 -> 48 px (igual que el player)
+    world->transform->scaleX = world->transform->scaleY = 3.0f; // tile 16 -> 48 px
     auto map = world->addComponent<TilemapRenderer>(); // modo archivo: el tileset lo da el mapa
 
     if (!map->loadFromTiledJson("assets/maps/topdown_level1.json"))
@@ -128,6 +89,53 @@ void buildTopDown(Scene& scene) {
     //             tiles[y * MAP_W + x] = TILE_BORDER;
     // map->setMap(tiles, MAP_W, MAP_H);
     // map->setSolid(TILE_BORDER);
+
+    // --- NinjaGreen: mapeo de COLUMNAS del sheet a direcciones -----------------
+    // Walk.png e Idle.png miden 128x128 = grilla 4x4 de cuadros de 32x32 (VERIFICADO
+    // abriendo los PNG: 4 columnas x 4 filas, NO 16x16). En este pack la DIRECCION es la
+    // COLUMNA y los FRAMES de cada animacion van por FILAS (4 frames por columna). Por
+    // eso se usa addLineAnimation con StripAxis::Column.
+    // El orden columna -> direccion NO esta garantizado: VERIFICALO abriendo el sprite.
+    // Si el ninja mira al lado equivocado, esto es LO PRIMERO a corregir.
+    const int   FRAME     = 32; // tamano de cada cuadro en el sheet (128 / 4 = 32)
+    const int   COL_DOWN  = 0;
+    const int   COL_UP    = 1;
+    const int   COL_LEFT  = 2;
+    const int   COL_RIGHT = 3;
+    const float ANIM_FPS  = 9.0f;
+
+    const std::string WALK = "assets/ninja_adventure/Actor/CharacterAnimated/NinjaGreen/Separate/Walk.png";
+    const std::string IDLE = "assets/ninja_adventure/Actor/CharacterAnimated/NinjaGreen/Separate/Idle.png";
+
+    GameObject* player = scene.createGameObject("Player");
+    player->transform->x = 0.0f;
+    player->transform->y = 0.0f;
+    player->transform->scaleX = player->transform->scaleY = 2.0f; // 32px -> 64px en mundo
+    player->addComponent<SpriteRenderer>(); // sin textura: la pone el SpriteAnimator
+
+    // El tercer parametro (columnas de hoja) no lo usa addLineAnimation; aqui refleja
+    // las 4 columnas reales del sheet.
+    auto anim = player->addComponent<SpriteAnimator>(FRAME, FRAME, 4);
+    anim->addLineAnimation("walk_down",  WALK, FRAME, FRAME, COL_DOWN,  StripAxis::Column, ANIM_FPS);
+    anim->addLineAnimation("walk_up",    WALK, FRAME, FRAME, COL_UP,    StripAxis::Column, ANIM_FPS);
+    anim->addLineAnimation("walk_left",  WALK, FRAME, FRAME, COL_LEFT,  StripAxis::Column, ANIM_FPS);
+    anim->addLineAnimation("walk_right", WALK, FRAME, FRAME, COL_RIGHT, StripAxis::Column, ANIM_FPS);
+    anim->addLineAnimation("idle_down",  IDLE, FRAME, FRAME, COL_DOWN,  StripAxis::Column, ANIM_FPS);
+    anim->addLineAnimation("idle_up",    IDLE, FRAME, FRAME, COL_UP,    StripAxis::Column, ANIM_FPS);
+    anim->addLineAnimation("idle_left",  IDLE, FRAME, FRAME, COL_LEFT,  StripAxis::Column, ANIM_FPS);
+    anim->addLineAnimation("idle_right", IDLE, FRAME, FRAME, COL_RIGHT, StripAxis::Column, ANIM_FPS);
+    anim->play("idle_down");
+
+    auto rb = player->addComponent<RigidBody2D>();
+    rb->gravityScale = 0.0f; // cenital: sin gravedad
+
+    auto col = player->addComponent<BoxCollider>();
+    // El ninja no llena el cuadro de 32x32: el cuerpo ocupa el centro-bajo. En unidades
+    // de mundo (el cuadro completo mide 32*2 = 64 px). Ajustado al cuerpo y corrido
+    // hacia los pies; calibrar con F1.
+    col->width = 28.0f; col->height = 40.0f; col->offsetY = 8.0f;
+
+    player->addComponent<TopDownController>();
 
     // --- Camara: sigue al player con zona muerta --------------------------------
     GameObject* cam = scene.createGameObject("MainCamera");
