@@ -25,25 +25,32 @@ void SpriteAnimator::addAnimation(const std::string& name, const std::vector<int
 
 void SpriteAnimator::addStripAnimation(const std::string& name, const std::string& path,
                                        int fw, int fh, float fps, bool loop) {
-    // Cada tira es su propia textura. El AssetManager cachea por ruta, asi que
-    // clips con la misma ruta comparten textura y con rutas distintas no.
+    // Una tira es el caso particular de una fila (la fila 0) de un sheet.
+    addRowAnimation(name, path, fw, fh, 0, fps, loop);
+}
+
+void SpriteAnimator::addRowAnimation(const std::string& name, const std::string& path,
+                                     int fw, int fh, int row, float fps, bool loop) {
+    // El AssetManager cachea por ruta, asi que clips con la misma ruta comparten
+    // textura (p.ej. varias filas del mismo sheet) y con rutas distintas no.
     SDL_Texture* tex = gameObject->scene->getAssets().loadTexture(path);
 
-    int count = 1;
+    int cols = 1;
     if (tex && fw > 0) {
         float w = 0.0f, h = 0.0f;
         SDL_GetTextureSize(tex, &w, &h);
-        count = (int)(w / fw); // deducimos los cuadros del ancho (una sola fila)
-        if (count < 1) count = 1;
+        cols = (int)(w / fw); // frames por fila = ancho de la textura / ancho de cuadro
+        if (cols < 1) cols = 1;
     }
 
     Clip clip;
     clip.texture = tex;
     clip.frameW  = fw;
     clip.frameH  = fh;
-    clip.columns = count; // una sola fila: columnas = total de cuadros
-    clip.frames.reserve(count);
-    for (int i = 0; i < count; ++i) clip.frames.push_back(i);
+    clip.columns = cols; // columnas de TODA la hoja, para mapear celda -> col/fila
+    clip.frames.reserve(cols);
+    // Las celdas de la fila pedida: cell = row * cols + i => col = i, fila = row.
+    for (int i = 0; i < cols; ++i) clip.frames.push_back(row * cols + i);
     clip.fps  = fps;
     clip.loop = loop;
     clips[name] = std::move(clip);
