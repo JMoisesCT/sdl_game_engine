@@ -22,8 +22,9 @@ Lo que el motor ya hace hoy:
   de vida `awake` / `start` / `update` / `render` / `onCollision`. El `Transform` marca el
   **centro** del objeto.
 - **Sprites**: `SpriteRenderer` con recortes, flip horizontal y anclaje al centro.
-- **Animación por spritesheet**: `SpriteAnimator`, tanto con un solo sheet como con
-  múltiples archivos (una tira por animación).
+- **Animación por spritesheet**: `SpriteAnimator` con varios formatos: celdas numeradas de
+  un solo sheet, una tira (un archivo) por animación, o una fila/columna de un sheet en
+  grilla (para personajes direccionales).
 - **Cámara**: `Camera` + `FollowCamera` con zona muerta y suavizado.
 - **Física AABB**: `RigidBody2D` + `BoxCollider` con gravedad, colisiones, triggers y
   detección de "grounded".
@@ -80,7 +81,8 @@ sdl_upc_engine/
 │   └── Shooter.{h,cpp}     #   ejemplo 3
 ├── main.cpp                # Bucle de SDL + selector de ejemplos (teclas 1/2/3)
 ├── assets/                 # Recursos junto al ejecutable (imágenes, mapas)
-│   ├── pixel_adventure/    #   sprites del pack Pixel Adventure
+│   ├── pixel_adventure/    #   sprites del pack Pixel Adventure (platformer)
+│   ├── ninja_adventure/    #   sprites y tileset del pack Ninja Adventure (top-down)
 │   └── maps/               #   niveles de Tiled (.json/.tmx) y mapa propio (.map)
 ├── sdl_upc_engine.vcxproj  # Proyecto de Visual Studio (un solo ejecutable)
 └── vcpkg.json              # Manifiesto vcpkg (solo nlohmann-json)
@@ -129,8 +131,8 @@ Hay **tres ejemplos** que se cambian en caliente con las teclas numéricas:
 
 | Tecla | Ejemplo |
 |-------|---------|
-| `1`   | Platformer (lateral con gravedad y salto) |
-| `2`   | Top-down (movimiento en 4 direcciones) |
+| `1`   | Platformer (lateral con gravedad y salto; personaje de **Pixel Adventure** animado por estado) |
+| `2`   | Top-down (4 direcciones; personaje de **Ninja Adventure** con animación direccional y mundo desde Tiled) |
 | `3`   | Shooter (disparo) |
 | `F1`  | Prende/apaga el dibujo de debug (colliders, etc.) |
 
@@ -231,6 +233,11 @@ punteros a objetos destruidos.
 
 ## Créditos de assets
 
-Los sprites provienen del pack **[Pixel Adventure](https://pixelfrog-assets.itch.io/pixel-adventure-1)**
-de **Pixel Frog** (itch.io). Se usan con fines educativos; **respeta su licencia** si
-reutilizas o redistribuyes los assets.
+- **[Pixel Adventure](https://pixelfrog-assets.itch.io/pixel-adventure-1)** de **Pixel Frog**
+  (itch.io) — sprites del ejemplo *platformer*. Respeta su licencia si reutilizas o
+  redistribuyes los assets.
+- **[Ninja Adventure Asset Pack](https://pixel-boy.itch.io/ninja-adventure-asset-pack)** de
+  **Pixel-boy y AAA** — sprites del ninja y tileset del ejemplo *top-down*. Publicado bajo
+  **CC0** (dominio público; atribución no obligatoria pero apreciada).
+
+Se usan con fines educativos.
