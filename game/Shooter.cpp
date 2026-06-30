@@ -23,6 +23,15 @@
 static const char* SHIPS_SHEET = "assets/kenney_pixelshmup/Tilemap/ships_packed.png";
 static const int   SHIP_CELL   = 32; // tamano de cada celda de nave en la hoja
 
+// Tileset tiles_packed.png (mismo del fondo): grilla de 12x10 celdas de 16x16.
+// Los TRES PRIMEROS tiles (indices 0,1,2 = columnas 0,1,2 de la fila 0) son balas.
+// OJO: esta ruta debe ser EXACTAMENTE la que arma loadFromTiledJson (carpeta del
+// .json + el "image" relativo), porque el AssetManager cachea por cadena de ruta.
+// Usando la misma cadena compartimos la textura ya cargada por el TilemapRenderer
+// (no se carga ni se duplica una segunda vez).
+static const char* TILES_SHEET = "assets/maps/../kenney_pixelshmup/Tilemap/tiles_packed.png";
+static const int   TILE_CELL   = 16; // tamano de cada celda del tileset
+
 // Recorte (x,y,w,h) de la celda (col,fil) de la hoja de naves.
 static void setShipCell(SpriteRenderer* sr, int col, int row) {
     sr->setSourceRect(col * SHIP_CELL, row * SHIP_CELL, SHIP_CELL, SHIP_CELL);
@@ -64,14 +73,15 @@ private:
         GameObject* bala = scene->createGameObject("Bala");
         bala->transform->x = gameObject->transform->x;
         bala->transform->y = gameObject->transform->y - 40.0f;
-        bala->transform->scaleX = bala->transform->scaleY = 1.5f;
+        bala->transform->scaleX = bala->transform->scaleY = 2.5f; // 16px -> 40px en mundo
 
-        // DECISION PENDIENTE: ni ships_packed ni tiles_packed traen un sprite de
-        // proyectil. Por ahora la bala usa el placeholder cuadrado.png; cuando se
-        // elija un asset de bala (otro pack, o un tile concreto del tileset) se
-        // cambia aqui el SpriteRenderer.
-        auto s = bala->addComponent<SpriteRenderer>("assets/cuadrado.png");
-        s->setSourceRect(0, 0, 32, 32);
+        // Bala del jugador: tile indice 0 (columna 0, fila 0) del tiles_packed.png,
+        // recorte de 16x16 anclado al centro como el resto de sprites. Reusa la
+        // textura ya cacheada del fondo (misma cadena de ruta, ver TILES_SHEET).
+        // Los indices 1 y 2 (columnas 1 y 2 de la fila 0) son las otras dos balas:
+        // quedan disponibles para balas alternativas o de enemigos.
+        auto s = bala->addComponent<SpriteRenderer>(TILES_SHEET);
+        s->setSourceRect(0, 0, TILE_CELL, TILE_CELL);
         auto rb = bala->addComponent<RigidBody2D>();
         rb->gravityScale = 0.0f;
         rb->velocityY = -500.0f; // sube
