@@ -36,6 +36,10 @@ SDL_Texture* AssetManager::loadTexture(const std::string& path) {
         return nullptr;
     }
 
+    // Muestreo por vecino mas cercano (no bilineal): coherencia de pixel art y
+    // evita el sangrado de bordes al escalar (tilesets y sprites por igual).
+    SDL_SetTextureScaleMode(texture, SDL_SCALEMODE_NEAREST);
+
     // Guardar en cache y devolver.
     textures[path] = texture;
     return texture;

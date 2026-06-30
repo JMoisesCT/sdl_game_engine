@@ -371,16 +371,32 @@ void TilemapRenderer::render() {
                 (float)(tsCol * tileW), (float)(tsRow * tileH),
                 (float)tileW, (float)tileH };
 
-            // Esquina superior izquierda de la celda en el mundo -> pantalla.
-            float worldX = t->x + col * worldTileW;
-            float worldY = t->y + row * worldTileH;
-            float screenX, screenY;
-            if (cam) cam->worldToScreen(worldX, worldY, screenX, screenY);
-            else { screenX = worldX; screenY = worldY; }
+            // Esquinas de la celda en el MUNDO: la izq/arriba de esta celda y la
+            // izq/arriba de la SIGUIENTE (que es su der/abajo). Pasamos ambas a
+            // pantalla y redondeamos cada borde a entero. Asi el borde derecho de
+            // un tile cae en el mismo entero que el borde izquierdo del vecino:
+            // sin costura sub-pixel ni solape (la fuente del bleeding al escalar
+            // con coordenadas fraccionarias por camara/zoom).
+            float worldLeft = t->x + col * worldTileW;
+            float worldTop = t->y + row * worldTileH;
+            float worldRight = worldLeft + worldTileW;
+            float worldBottom = worldTop + worldTileH;
 
+            float sLeft, sTop, sRight, sBottom;
+            if (cam) {
+                cam->worldToScreen(worldLeft, worldTop, sLeft, sTop);
+                cam->worldToScreen(worldRight, worldBottom, sRight, sBottom);
+            } else {
+                sLeft = worldLeft; sTop = worldTop;
+                sRight = worldRight; sBottom = worldBottom;
+            }
+
+            float dLeft = std::round(sLeft);
+            float dTop = std::round(sTop);
             SDL_FRect dst{
-                screenX, screenY,
-                worldTileW * zoom, worldTileH * zoom };
+                dLeft, dTop,
+                std::round(sRight) - dLeft,
+                std::round(sBottom) - dTop };
 
             SDL_RenderTexture(renderer, texture, &src, &dst);
         }
