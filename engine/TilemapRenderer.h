@@ -37,6 +37,12 @@ public:
     // para el formato del archivo.
     bool loadFromFile(const std::string& path);
 
+    // Carga un mapa exportado desde Tiled en formato JSON (capa de tiles + tileset
+    // embebido). Deja el componente en el mismo estado que los otros cargadores.
+    // Devuelve false (y hace SDL_Log) si falla, sin dejarlo a medio configurar.
+    // Ver el .cpp para los supuestos del export y la conversion de indices.
+    bool loadFromTiledJson(const std::string& path);
+
     // Marca un indice de tile como solido (genera colision). Se puede llamar varias veces.
     void setSolid(int tileIndex);
 

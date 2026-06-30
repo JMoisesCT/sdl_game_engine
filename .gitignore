@@ -404,3 +404,6 @@ FodyWeavers.xsd
 
 # JetBrains Rider
 *.sln.iml
+
+# vcpkg: el arbol instalado se regenera al restaurar el manifiesto (vcpkg.json)
+vcpkg_installed/

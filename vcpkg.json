@@ -1,0 +1,9 @@
+{
+  "name": "sdl-upc-engine",
+  "version-string": "0.1.0",
+  "description": "Motor 2D educativo sobre SDL3. Dependencias header-only via vcpkg.",
+  "builtin-baseline": "ce6a9c8ee4a45cc0053486a795b4c719b2554921",
+  "dependencies": [
+    "nlohmann-json"
+  ]
+}

@@ -93,9 +93,16 @@ void buildPlatformer(Scene& scene) {
     tilemap->transform->x = -960.0f;
     tilemap->transform->y = -262.0f; // colocado para que el suelo quede en pantalla (~y=250)
     tilemap->transform->scaleX = tilemap->transform->scaleY = 4.0f; // 16px -> 64px por celda
-    auto tm = tilemap->addComponent<TilemapRenderer>(); // modo archivo: el tileset lo da el .map
-    if (!tm->loadFromFile("assets/maps/level1.map"))
-        SDL_Log("buildPlatformer: no se pudo cargar assets/maps/level1.map");
+    auto tm = tilemap->addComponent<TilemapRenderer>(); // modo archivo: el tileset lo da el mapa
+    // Nivel exportado desde Tiled (JSON, capa de tiles + tileset embebido). El .json
+    // se espera en assets/maps/ y su "image" (relativa al .json) debe apuntar al tileset
+    // accesible desde ahi (p.ej. ../pixel_adventure/Terrain/...). Los tiles solidos se
+    // marcan en Tiled con una propiedad booleana "solid"=true en el tileset.
+    if (!tm->loadFromTiledJson("assets/maps/level1.json"))
+        SDL_Log("buildPlatformer: no se pudo cargar assets/maps/level1.json");
+    // Alternativa: nuestro formato .map propio (queda como referencia).
+    // if (!tm->loadFromFile("assets/maps/level1.map"))
+    //     SDL_Log("buildPlatformer: no se pudo cargar assets/maps/level1.map");
 
     GameObject* cam = scene.createGameObject("MainCamera");
     cam->addComponent<Camera>();
