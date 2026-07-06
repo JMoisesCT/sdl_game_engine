@@ -2,6 +2,8 @@
 
 #include <SDL3/SDL.h>
 #include <cstdlib>
+#include <string>
+#include <vector>
 
 #include "../engine/Scene.h"
 #include "../engine/GameObject.h"
@@ -9,6 +11,7 @@
 #include "../engine/Transform.h"
 #include "../engine/SpriteRenderer.h"
 #include "../engine/TilemapRenderer.h"
+#include "../engine/TiledObjectLayer.h"
 #include "../engine/RigidBody2D.h"
 #include "../engine/BoxCollider.h"
 #include "../engine/Camera.h"
@@ -93,6 +96,104 @@ private:
     }
 };
 
+// Crea la nave del jugador (celda a color col 0, fila 0) en la posicion de mundo
+// dada. Se reusa desde la fabrica (PlayerStart) y desde el fallback de buildShooter.
+static GameObject* makePlayer(Scene& scene, float x, float y) {
+    GameObject* player = scene.createGameObject("Player");
+    player->transform->x = x;
+    player->transform->y = y;
+    player->transform->scaleX = player->transform->scaleY = 3.0f;
+    auto sr = player->addComponent<SpriteRenderer>(SHIPS_SHEET);
+    setShipCell(sr, 0, 0); // nave del jugador: columna 0, fila 0 (a color)
+    auto rb = player->addComponent<RigidBody2D>();
+    rb->gravityScale = 0.0f;
+    auto col = player->addComponent<BoxCollider>();
+    col->width = 60.0f; col->height = 60.0f;
+    player->addComponent<ShooterController>();
+    return player;
+}
+
+// --- Fabrica: TiledObject -> GameObject (la SEMANTICA vive del lado del juego) ---
+// El motor solo entrega datos planos; aqui decidimos, segun "type", que objeto del
+// juego crear y con que componentes. Un type desconocido se avisa y se ignora (no
+// crashea). El motor NO conoce ninguno de estos types.
+//
+// Tiled da el centro en pixeles del mapa (sin escalar). Lo llevamos al MUNDO con el
+// mismo origen y escala que uso el tilemap, para que objeto y fondo queden alineados.
+static void spawnFromTiledObject(Scene& scene, const TiledObject& o,
+                                 float originX, float originY, float worldScale) {
+    float wx = originX + o.cx * worldScale;
+    float wy = originY + o.cy * worldScale;
+
+    if (o.type == "PlayerStart") {
+        // Objeto punto: coloca la nave del jugador. Debe haber exactamente uno
+        // (buildShooter valida el conteo y avisa si no).
+        makePlayer(scene, wx, wy);
+    }
+    else if (o.type == "EnemySpawn") {
+        // Nave enemiga gris (filas 3-5 de la hoja). Propiedades de Tiled:
+        //   shipCol (int), shipRow (int) -> celda 32x32 de la hoja de naves.
+        //   speed   (float)             -> velocidad de caida (Y crece hacia abajo).
+        // Si faltan, se usan valores por defecto sensatos.
+        int   shipCol = (int)o.getNumber("shipCol", 0.0);
+        int   shipRow = (int)o.getNumber("shipRow", 3.0); // 3,4,5 = naves grises
+        float speed   = (float)o.getNumber("speed", 60.0);
+
+        GameObject* e = scene.createGameObject("Enemigo");
+        e->transform->x = wx;
+        e->transform->y = wy;
+        e->transform->scaleX = e->transform->scaleY = 2.5f;
+        auto sr = e->addComponent<SpriteRenderer>(SHIPS_SHEET);
+        setShipCell(sr, shipCol, shipRow);
+        auto rb = e->addComponent<RigidBody2D>();
+        rb->gravityScale = 0.0f;
+        rb->velocityY = speed; // baja por la pantalla
+        auto c = e->addComponent<BoxCollider>();
+        c->width = c->height = 80.0f;
+        c->isTrigger = true;
+        e->addComponent<DestroyOnHit>()->targetName = "Bala";
+        // TODO(streaming): con scroll, activar el enemigo solo cuando su celda entra
+        // en la vista y destruirlo (o reciclarlo) al salir por abajo.
+    }
+    else if (o.type == "PowerUp") {
+        // Power-up en cx,cy. Propiedad kind (string) = tipo de efecto. Por ahora
+        // solo el GameObject con un sprite placeholder y un collider trigger.
+        std::string kind = o.getString("kind", "");
+        GameObject* p = scene.createGameObject("PowerUp");
+        p->transform->x = wx;
+        p->transform->y = wy;
+        p->transform->scaleX = p->transform->scaleY = 2.5f;
+        // Placeholder visual: un tile cualquiera del tiles_packed.png (elige otra
+        // celda cuando haya arte). Reusa la textura del fondo (misma cadena de ruta).
+        auto sr = p->addComponent<SpriteRenderer>(TILES_SHEET);
+        sr->setSourceRect(6 * TILE_CELL, 5 * TILE_CELL, TILE_CELL, TILE_CELL);
+        auto c = p->addComponent<BoxCollider>();
+        c->width = c->height = 32.0f;
+        c->isTrigger = true;
+        // TODO: aplicar el efecto segun 'kind' cuando la nave lo recoja.
+        (void)kind;
+    }
+    else if (o.type == "TriggerZone") {
+        // Rectangulo: zona invisible con un collider trigger del tamano w,h de Tiled
+        // (escalado al mundo). Propiedad event (string), p. ej. "boss"/"levelend".
+        std::string event = o.getString("event", "");
+        GameObject* z = scene.createGameObject("TriggerZone");
+        z->transform->x = wx;
+        z->transform->y = wy;
+        auto c = z->addComponent<BoxCollider>();
+        c->width  = o.w * worldScale;
+        c->height = o.h * worldScale;
+        c->isTrigger = true;
+        // TODO: disparar el evento 'event' cuando la nave entre en la zona.
+        (void)event;
+    }
+    else {
+        // type desconocido: avisamos (sin tildes) y seguimos, sin crashear.
+        SDL_Log("buildShooter: objeto de Tiled con type desconocido '%s' (name='%s'), ignorado",
+                o.type.c_str(), o.name.c_str());
+    }
+}
+
 void buildShooter(Scene& scene) {
     // --- Fondo: nivel cargado desde Tiled (JSON) --------------------------------
     // OJO AL ORDEN: el dibujo sigue el orden de creacion, asi que el tilemap se crea
@@ -102,12 +203,13 @@ void buildShooter(Scene& scene) {
     // tiles_packed.png del pack (tileset 12x10 de tiles de 16x16). El tile, columnas
     // y solidos los define el propio .json: aqui no se tocan. Valores leidos del JSON:
     // tile 16x16, mapa 10x100 (vertical), firstgid 1.
-    const int TILE  = 16;          // tile del tileset (lo confirma el .json)
-    const int MAP_W = 10;          // ancho del mapa de Tiled (para centrarlo en X)
+    const int   TILE  = 16;         // tile del tileset (lo confirma el .json)
+    const int   MAP_W = 10;         // ancho del mapa de Tiled (para centrarlo en X)
+    const float WORLD_SCALE = 3.0f; // tile 16 -> 48 px
 
     GameObject* world = scene.createGameObject("World");
     // El Transform marca el ORIGEN del mapa (esquina superior izquierda de la celda 0,0).
-    world->transform->scaleX = world->transform->scaleY = 3.0f; // tile 16 -> 48 px
+    world->transform->scaleX = world->transform->scaleY = WORLD_SCALE;
     auto map = world->addComponent<TilemapRenderer>(); // modo archivo: el tileset lo da el mapa
 
     if (!map->loadFromTiledJson("assets/maps/shmup_level1.json"))
@@ -115,20 +217,34 @@ void buildShooter(Scene& scene) {
 
     // Centrar el mapa en X alrededor del origen (donde se mueve el player). En Y el
     // mapa es muy alto (100 tiles): lo apoyamos en el borde superior de la vista.
-    world->transform->x = -(MAP_W * TILE * 3.0f) * 0.5f;
-    world->transform->y = -300.0f;
+    const float ORIGIN_X = -(MAP_W * TILE * WORLD_SCALE) * 0.5f;
+    const float ORIGIN_Y = -300.0f;
+    world->transform->x = ORIGIN_X;
+    world->transform->y = ORIGIN_Y;
 
-    // --- Jugador: nave a color, celda (col 0, fila 0) ---------------------------
-    GameObject* player = scene.createGameObject("Player");
-    player->transform->y = 250.0f;
-    player->transform->scaleX = player->transform->scaleY = 3.0f;
-    auto sr = player->addComponent<SpriteRenderer>(SHIPS_SHEET);
-    setShipCell(sr, 0, 0); // nave del jugador: columna 0, fila 0 (a color)
-    auto rb = player->addComponent<RigidBody2D>();
-    rb->gravityScale = 0.0f;
-    auto col = player->addComponent<BoxCollider>();
-    col->width = 60.0f; col->height = 60.0f;
-    player->addComponent<ShooterController>();
+    // --- Objetos de la(s) capa(s) de objetos de Tiled ---------------------------
+    // VERSION 1: se instancia TODO al cargar la escena (sin streaming por scroll).
+    // El parser generico (engine) devuelve datos planos; la fabrica de arriba les da
+    // semantica. Reabrimos el .json por ahora (el TilemapRenderer lo abre por su
+    // cuenta): no reescribimos su loader; convivir con una segunda lectura esta bien.
+    // TODO(streaming): cuando haya scroll, instanciar cada objeto solo al entrar su
+    // banda vertical en la vista, en vez de todos de golpe aqui.
+    std::vector<TiledObject> objs = loadTiledObjectLayers("assets/maps/shmup_level1.json");
+    int playerCount = 0;
+    for (const TiledObject& o : objs) {
+        if (o.type == "PlayerStart") ++playerCount;
+        spawnFromTiledObject(scene, o, ORIGIN_X, ORIGIN_Y, WORLD_SCALE);
+    }
+    // El mapa debe traer EXACTAMENTE un PlayerStart. Si aun no lo tiene (la capa de
+    // objetos se anade despues en Tiled), colocamos una nave por defecto para que el
+    // ejemplo siga siendo jugable; si hay mas de uno, avisamos.
+    if (playerCount == 0) {
+        SDL_Log("buildShooter: no hay PlayerStart en el mapa; uso una nave por defecto");
+        makePlayer(scene, 0.0f, 250.0f);
+    } else if (playerCount > 1) {
+        SDL_Log("buildShooter: hay %d PlayerStart en el mapa (deberia haber exactamente uno)",
+                playerCount);
+    }
 
     GameObject* spawner = scene.createGameObject("EnemySpawner");
     auto sp = spawner->addComponent<Spawner>();

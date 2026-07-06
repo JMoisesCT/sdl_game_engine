@@ -27,6 +27,7 @@
     <ClCompile Include="engine\Scene.cpp" />
     <ClCompile Include="engine\SpriteAnimator.cpp" />
     <ClCompile Include="engine\SpriteRenderer.cpp" />
+    <ClCompile Include="engine\TiledObjectLayer.cpp" />
     <ClCompile Include="engine\TilemapRenderer.cpp" />
     <ClCompile Include="game\Platformer.cpp" />
     <ClCompile Include="game\Shooter.cpp" />
@@ -45,6 +46,7 @@
     <ClInclude Include="engine\Scene.h" />
     <ClInclude Include="engine\SpriteAnimator.h" />
     <ClInclude Include="engine\SpriteRenderer.h" />
+    <ClInclude Include="engine\TiledObjectLayer.h" />
     <ClInclude Include="engine\TilemapRenderer.h" />
     <ClInclude Include="engine\third_party\nlohmann\json.hpp" />
     <ClInclude Include="engine\Transform.h" />
