@@ -27,6 +27,7 @@
     <ClCompile Include="engine\Scene.cpp" />
     <ClCompile Include="engine\SpriteAnimator.cpp" />
     <ClCompile Include="engine\SpriteRenderer.cpp" />
+    <ClCompile Include="engine\TextRenderer.cpp" />
     <ClCompile Include="engine\TiledObjectLayer.cpp" />
     <ClCompile Include="engine\TilemapRenderer.cpp" />
     <ClCompile Include="game\Platformer.cpp" />
@@ -46,6 +47,7 @@
     <ClInclude Include="engine\Scene.h" />
     <ClInclude Include="engine\SpriteAnimator.h" />
     <ClInclude Include="engine\SpriteRenderer.h" />
+    <ClInclude Include="engine\TextRenderer.h" />
     <ClInclude Include="engine\TiledObjectLayer.h" />
     <ClInclude Include="engine\TilemapRenderer.h" />
     <ClInclude Include="engine\third_party\nlohmann\json.hpp" />
@@ -138,18 +140,19 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>D:\SDL3\include; D:\SDL3_image\include; $(ProjectDir)engine\third_party</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>D:\SDL3\include; D:\SDL3_image\include; D:\SDL3_ttf\include; $(ProjectDir)engine\third_party</AdditionalIncludeDirectories>
       <LanguageStandard>stdcpp17</LanguageStandard>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalLibraryDirectories>D:\SDL3\lib\x64;D:\SDL3_image\lib\x64;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>SDL3.lib;SDL3_image.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>D:\SDL3\lib\x64;D:\SDL3_image\lib\x64;D:\SDL3_ttf\lib\x64;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>SDL3.lib;SDL3_image.lib;SDL3_ttf.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <PostBuildEvent>
       <Command>xcopy /y "D:\SDL3\lib\x64\SDL3.dll" "$(OutDir)"
 xcopy /y "D:\SDL3_image\lib\x64\SDL3_image.dll" "$(OutDir)"
+xcopy /y "D:\SDL3_ttf\lib\x64\SDL3_ttf.dll" "$(OutDir)"
 xcopy /Y /E /I "$(ProjectDir)assets" "$(OutDir)assets"</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>

@@ -17,6 +17,7 @@
 #include "../engine/BoxCollider.h"
 #include "../engine/Camera.h"
 #include "../engine/Lifetime.h"
+#include "../engine/TextRenderer.h"
 
 // --- Asset pack: Kenney Pixel Shmup (instalado a mano en assets/) -------------
 // Hoja de naves: grilla de 4 columnas x 6 filas, cada celda de 32x32 px. Las naves
@@ -34,6 +35,11 @@ static const int   SHIP_CELL   = 32; // tamano de cada celda de nave en la hoja
 // (no se carga ni se duplica una segunda vez).
 static const char* TILES_SHEET = "assets/maps/../kenney_pixelshmup/Tilemap/tiles_packed.png";
 static const int   TILE_CELL   = 16; // tamano de cada celda del tileset
+
+// Fuente del HUD. Ruta manual, misma convencion que las texturas. Tamanio potencia
+// de 2 para que la fuente pixel se vea nitida (sin reescalado feo).
+static const char* HUD_FONT    = "assets/ninja_adventure/Ui/Font/NormalFont.ttf";
+static const int   HUD_SIZE    = 32;
 
 // Recorte (x,y,w,h) de la celda (col,fil) de la hoja de naves.
 static void setShipCell(SpriteRenderer* sr, int col, int row) {
@@ -79,12 +85,41 @@ public:
     }
 };
 
-// Destruye su objeto (y al otro) cuando choca con algo de cierto nombre.
+// --- HUD: contador de puntaje (LOGICA DE JUEGO, no del motor) ----------------
+// El puntaje es de ESTE juego, por eso vive en Shooter.cpp y no en el motor. Este
+// componente guarda el numero y, cuando cambia, formatea "SCORE: N" y se lo pasa al
+// TextRenderer (que solo dibuja el string). El formateo del numero ocurre aqui, en
+// game/, no en el motor.
+class HudScore : public Component {
+public:
+    TextRenderer* label = nullptr; // el renderer del texto (screenSpace)
+    int score = 0;
+
+    void bump(int points) { score += points; }
+
+    void update(float) override {
+        // Solo tocamos el texto cuando el puntaje cambia (el TextRenderer ademas
+        // tiene su propio dirty flag; aqui evitamos incluso rearmar el string).
+        if (score == lastShown) return;
+        lastShown = score;
+        if (label) label->setText("SCORE: " + std::to_string(score));
+    }
+private:
+    int lastShown = -1; // distinto de score al inicio: fuerza el primer refresco
+};
+
+// Destruye su objeto (y al otro) cuando choca con algo de cierto nombre. Si se le da
+// un HudScore, suma 'points' al puntaje en ese choque (lo usamos solo en el enemigo,
+// para contar una vez por nave derribada por una bala).
 class DestroyOnHit : public Component {
 public:
     std::string targetName;
+    HudScore*   scoreOnKill = nullptr; // opcional: a quien sumarle puntos
+    int         points      = 100;
+
     void onCollision(GameObject* other) override {
         if (other->name == targetName) {
+            if (scoreOnKill) scoreOnKill->bump(points);
             gameObject->scene->destroy(gameObject);
             gameObject->scene->destroy(other);
         }
@@ -96,7 +131,8 @@ public:
 // (salvo 'speed'): "baja" en pantalla porque la camara sube. 'speed' agrega
 // velocidad extra en +y (mundo hacia abajo). Reusado por el streamer.
 static GameObject* spawnEnemy(Scene& scene, float wx, float wy,
-                              int shipCol, int shipRow, float speed) {
+                              int shipCol, int shipRow, float speed,
+                              HudScore* hud) {
     GameObject* e = scene.createGameObject("Enemigo");
     e->transform->x = wx;
     e->transform->y = wy;
@@ -109,7 +145,10 @@ static GameObject* spawnEnemy(Scene& scene, float wx, float wy,
     auto c = e->addComponent<BoxCollider>();
     c->width = c->height = 80.0f;
     c->isTrigger = true;
-    e->addComponent<DestroyOnHit>()->targetName = "Bala";
+    // Al recibir una bala se destruye y suma puntos al HUD (una vez por nave).
+    auto hit = e->addComponent<DestroyOnHit>();
+    hit->targetName  = "Bala";
+    hit->scoreOnKill = hud;
     // Red de seguridad: si escapa por abajo sin recibir bala, se limpia solo.
     e->addComponent<Lifetime>()->seconds = 12.0f;
     return e;
@@ -133,6 +172,7 @@ class EnemyStreamer : public Component {
 public:
     std::vector<PendingEnemy> pending; // ordenados por worldY DESCENDENTE
     float margin = 60.0f;              // adelanto: los suelta un poco antes de asomar
+    HudScore* hud = nullptr;           // se lo pasamos a cada enemigo para el puntaje
 
     void update(float) override {
         float left, right, top, bottom;
@@ -141,7 +181,7 @@ public:
         // orden, los pendientes cuya y ya quedo a la vista (o a 'margin' de asomar).
         while (next < pending.size() && pending[next].worldY >= top - margin) {
             const PendingEnemy& p = pending[next];
-            spawnEnemy(*gameObject->scene, p.worldX, p.worldY, p.shipCol, p.shipRow, p.speed);
+            spawnEnemy(*gameObject->scene, p.worldX, p.worldY, p.shipCol, p.shipRow, p.speed, hud);
             ++next;
         }
     }
@@ -370,7 +410,8 @@ void buildShooter(Scene& scene) {
     std::sort(pendingEnemies.begin(), pendingEnemies.end(),
               [](const PendingEnemy& a, const PendingEnemy& b) { return a.worldY > b.worldY; });
     GameObject* streamer = scene.createGameObject("EnemyStreamer");
-    streamer->addComponent<EnemyStreamer>()->pending = std::move(pendingEnemies);
+    auto streamComp = streamer->addComponent<EnemyStreamer>();
+    streamComp->pending = std::move(pendingEnemies);
 
     // --- Camara con scroll vertical --------------------------------------------
     // Arranca sobre el player, con un offset que lo deja en la parte baja del
@@ -383,4 +424,22 @@ void buildShooter(Scene& scene) {
     cam->transform->y = player->transform->y - winH * 0.30f;
     cam->addComponent<Camera>();
     cam->addComponent<CameraScroll>();
+
+    // --- HUD: puntaje -----------------------------------------------------------
+    // Se crea de ULTIMO para que el texto quede por ENCIMA de todo (el dibujo sigue
+    // el orden de creacion). El TextRenderer es screenSpace: coordenadas de pantalla
+    // fijas, no scrollea con el fondo. El Transform marca el CENTRO del texto, asi que
+    // ubicamos ese centro cerca de la esquina superior izquierda.
+    GameObject* hudObj = scene.createGameObject("HUD");
+    hudObj->transform->x = 130.0f; // centro del texto: deja margen a la izquierda
+    hudObj->transform->y = 36.0f;
+    auto label = hudObj->addComponent<TextRenderer>();
+    label->screenSpace = true;
+    label->setFont(scene.getAssets().loadFont(HUD_FONT, HUD_SIZE));
+    label->setColor(TextColor{ 255, 255, 255, 255 }); // blanco
+    auto hud = hudObj->addComponent<HudScore>();
+    hud->label = label;
+    // El streamer ya existe: le pasamos el HUD ahora (se lee recien en el primer
+    // frame, cuando suelta enemigos, asi que el orden de creacion no importa).
+    streamComp->hud = hud;
 }
