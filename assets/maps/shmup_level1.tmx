@@ -111,10 +111,10 @@
 </data>
  </layer>
  <objectgroup id="2" name="Objetos">
-  <object id="1" type="PlayerStart" x="67" y="146">
+  <object id="1" type="PlayerStart" x="78.0909" y="442.364">
    <point/>
   </object>
-  <object id="2" type="EnemySpawn" x="52.3333" y="95.6667">
+  <object id="2" type="EnemySpawn" x="82.5152" y="262.212">
    <properties>
     <property name="shipCol" type="int" value="3"/>
     <property name="shipRow" type="int" value="3"/>
