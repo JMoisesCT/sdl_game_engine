@@ -2,6 +2,7 @@
 
 #include <SDL3/SDL.h>
 #include <algorithm>
+#include <cmath>
 #include <cstdlib>
 #include <string>
 #include <vector>
@@ -414,16 +415,34 @@ void buildShooter(Scene& scene) {
     streamComp->pending = std::move(pendingEnemies);
 
     // --- Camara con scroll vertical --------------------------------------------
-    // Arranca sobre el player, con un offset que lo deja en la parte baja del
-    // viewport (mas espacio para ver enemigos entrando por arriba), y sube en -y a
-    // velocidad constante (CameraScroll). El player la acompana en su update.
+    // Posicionamiento INICIAL: solo el PUNTO DE PARTIDA; desde aqui el CameraScroll
+    // sigue bajando la y y el player la acompana en su update. Se hace al FINAL del
+    // setup a proposito, porque necesita el mapa ya cargado (para su ancho) y el
+    // player ya ubicado (para la y). La Camera marca el CENTRO de la pantalla.
     int winW = 0, winH = 0;
     SDL_GetCurrentRenderOutputSize(scene.getRenderer(), &winW, &winH);
     GameObject* cam = scene.createGameObject("MainCamera");
-    cam->transform->x = 0.0f; // mapa centrado en x: sin scroll horizontal
-    cam->transform->y = player->transform->y - winH * 0.30f;
-    cam->addComponent<Camera>();
+    Camera* camera = cam->addComponent<Camera>();
     cam->addComponent<CameraScroll>();
+
+    // Margen (px de pantalla) entre el player y el borde INFERIOR del viewport: a
+    // menor margen, mas pegado abajo queda (mas espacio arriba para ver enemigos
+    // entrando, propio de un shmup vertical). Ajustable.
+    const float PLAYER_BOTTOM_MARGIN = 80.0f;
+
+    // Trap del zoom: el viewport EFECTIVO se divide por el zoom de la camara. Con
+    // zoom != 1, usar winH crudo dejaria el encuadre corrido.
+    float zoom = camera->getZoom();
+    float halfViewportEff = (winH / zoom) * 0.5f;
+
+    // Eje x: CENTRO del mapa en el mundo = origen del mapa (Transform del World) mas
+    // medio ancho, leyendo el ancho del propio mapa cargado (getWorldWidth), sin
+    // cablear el ancho aqui. Centra el mapa horizontalmente.
+    // Eje y: derivada del player, dejandolo en la zona baja del viewport (con espacio
+    // arriba). Alternativa simple para centrarlo vertical: cam.y = player->transform->y.
+    // Redondeo a entero (pixel art: evitar bleeding sub-pixel desde el primer frame).
+    cam->transform->x = std::round(world->transform->x + map->getWorldWidth() * 0.5f);
+    cam->transform->y = std::round(player->transform->y - halfViewportEff + PLAYER_BOTTOM_MARGIN);
 
     // --- HUD: puntaje -----------------------------------------------------------
     // Se crea de ULTIMO para que el texto quede por ENCIMA de todo (el dibujo sigue

@@ -46,6 +46,23 @@ public:
     // Marca un indice de tile como solido (genera colision). Se puede llamar varias veces.
     void setSolid(int tileIndex);
 
+    // --- Consultas del mapa ya cargado ------------------------------------------
+    // Valen para cualquier origen (setMap / loadFromFile / loadFromTiledJson). Antes
+    // de cargar un mapa devuelven 0. Utiles del lado del juego, p. ej. para centrar
+    // la camara segun el ancho del mapa sin cablear esos numeros en el game/.
+    int getMapWidth()  const { return mapWidth; }   // ancho en CELDAS (tiles)
+    int getMapHeight() const { return mapHeight; }  // alto  en CELDAS (tiles)
+    int getTileWidth()  const { return tileW; }     // ancho de un tile EN LA IMAGEN (px)
+    int getTileHeight() const { return tileH; }     // alto  de un tile EN LA IMAGEN (px)
+    int getTilesetColumns() const { return tilesetColumns; } // columnas del tileset
+
+    // Tamano del mapa COMPLETO en pixeles de MUNDO: las celdas por el tamano de tile
+    // y por la escala del Transform del objeto (worldW = mapWidth * tileW * scaleX,
+    // worldH = mapHeight * tileH * scaleY). El origen del mapa es el propio Transform,
+    // asi que el CENTRO del mapa en x es transform->x + getWorldWidth() * 0.5f.
+    float getWorldWidth()  const;
+    float getWorldHeight() const;
+
     void awake() override;   // carga la textura del tileset
     void update(float dt) override; // build perezoso de los colliders la primera vez
     void render() override;  // dibuja solo las celdas visibles (culling)

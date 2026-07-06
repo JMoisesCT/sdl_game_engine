@@ -292,6 +292,15 @@ bool TilemapRenderer::loadFromTiledJson(const std::string& filePath) {
     return true;
 }
 
+float TilemapRenderer::getWorldWidth() const {
+    // Ancho en celdas * tamano de tile en la imagen * escala del objeto en el mundo.
+    return mapWidth * tileW * gameObject->transform->scaleX;
+}
+
+float TilemapRenderer::getWorldHeight() const {
+    return mapHeight * tileH * gameObject->transform->scaleY;
+}
+
 void TilemapRenderer::buildColliders() {
     Transform* t = gameObject->transform;
     float worldTileW = tileW * t->scaleX; // tamano de la celda en el mundo
