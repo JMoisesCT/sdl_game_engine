@@ -32,9 +32,20 @@ Lo que el motor ya hace hoy:
 - **Tilemap**: `TilemapRenderer` (grilla + tileset) con colisión de tiles, cargable desde
   **código**, desde un **archivo de texto propio** (`.map`) o desde **Tiled JSON** con tileset
   embebido (vía **nlohmann/json**, que viene incluida en el repo en `engine/third_party/`).
+  Expone consultas del mapa cargado (`getMapWidth/Height`, `getTileWidth/Height`,
+  `getWorldWidth/Height`) útiles, p. ej., para centrar la cámara según el ancho del mapa.
+- **Capa de objetos de Tiled**: `TiledObjectLayer` lee las capas *objectgroup* como **datos
+  planos** (`TiledObject`: `type`, centro ya corregido, tamaño y propiedades personalizadas).
+  El motor no sabe qué significa cada `type`; la semántica (jugador, enemigo, power-up…) la
+  pone el juego con una fábrica sobre `type`.
+- **Texto y HUD**: `TextRenderer` (vía **SDL3_ttf**) dibuja una cadena con una fuente cacheada;
+  modo `screenSpace` para HUD fijo (ignora la cámara) o texto en el mundo, con *dirty flag*
+  para regenerar la textura solo cuando el texto cambia. Usa `TTF_RenderText_Solid` (sin
+  antialiasing) para que la fuente pixel quede nítida.
 - **Debugger conmutable**: dibujo de colliders, zona muerta y primitivas (se prende/apaga en
   caliente).
-- **`AssetManager`**: dueño de las texturas; los renderers solo las piden prestadas.
+- **`AssetManager`**: dueño de las **texturas** y de las **fuentes** (`loadFont(ruta, tamaño)`,
+  cacheadas por pareja ruta/tamaño); los renderers solo las piden prestadas.
 
 ---
 
@@ -70,9 +81,11 @@ sdl_upc_engine/
 │   ├── AssetManager.{h,cpp}#   carga y posee texturas
 │   ├── SpriteRenderer.*    #   dibujo de sprites
 │   ├── SpriteAnimator.*    #   animación por spritesheet
+│   ├── TextRenderer.*      #   texto/HUD con fuentes (SDL3_ttf)
 │   ├── Camera.*  FollowCamera.*
 │   ├── RigidBody2D.h  BoxCollider.*   # física AABB
 │   ├── TilemapRenderer.*   #   grilla de tiles (código / archivo / Tiled JSON)
+│   ├── TiledObjectLayer.*  #   lee la capa de objetos de Tiled como datos planos
 │   ├── Lifetime.h  Spawner.h
 │   ├── Debugger.*          #   ayudas visuales de depuración
 │   └── third_party/        #   librerías de terceros incluidas (vendored)
@@ -84,7 +97,8 @@ sdl_upc_engine/
 ├── main.cpp                # Bucle de SDL + selector de ejemplos (teclas 1/2/3)
 ├── assets/                 # Recursos junto al ejecutable (imágenes, mapas)
 │   ├── pixel_adventure/    #   sprites del pack Pixel Adventure (platformer)
-│   ├── ninja_adventure/    #   sprites y tileset del pack Ninja Adventure (top-down)
+│   ├── ninja_adventure/    #   sprites/tileset (top-down) y fuente del HUD (Ui/Font)
+│   ├── kenney_pixelshmup/  #   naves y tileset del pack Kenney Pixel Shmup (shooter)
 │   └── maps/               #   niveles de Tiled (.json/.tmx) y mapa propio (.map)
 └── sdl_upc_engine.vcxproj  # Proyecto de Visual Studio (un solo ejecutable)
 ```
@@ -103,12 +117,14 @@ ejecutable de consola). No hay solución `.sln` ni `CMakeLists.txt` en el repo: 
 ### Requisitos
 
 - **Visual Studio 2026** con el toolset de C++ (PlatformToolset `v145`), C++17.
-- **SDL3** y **SDL3_image** instalados **manualmente**. El proyecto los espera en estas rutas
-  (configuradas en `sdl_upc_engine.vcxproj`, plataforma **x64**):
-  - Includes: `D:\SDL3\include`, `D:\SDL3_image\include`
-  - Libs: `D:\SDL3\lib\x64`, `D:\SDL3_image\lib\x64`
-  - DLLs: `D:\SDL3\lib\x64\SDL3.dll`, `D:\SDL3_image\lib\x64\SDL3_image.dll`
+- **SDL3**, **SDL3_image** y **SDL3_ttf** instalados **manualmente**. El proyecto los espera en
+  estas rutas (configuradas en `sdl_upc_engine.vcxproj`, plataforma **x64**):
+  - Includes: `D:\SDL3\include`, `D:\SDL3_image\include`, `D:\SDL3_ttf\include`
+  - Libs: `D:\SDL3\lib\x64`, `D:\SDL3_image\lib\x64`, `D:\SDL3_ttf\lib\x64`
+  - DLLs: `D:\SDL3\lib\x64\SDL3.dll`, `D:\SDL3_image\lib\x64\SDL3_image.dll`,
+    `D:\SDL3_ttf\lib\x64\SDL3_ttf.dll`
 
+  > `SDL3_ttf` se usa para el texto/HUD (fuentes). Se instala igual que `SDL3_image`, a mano.
   > Si instalaste SDL3 en otra ruta, ajusta `AdditionalIncludeDirectories`,
   > `AdditionalLibraryDirectories` y el `PostBuildEvent` del `.vcxproj`.
 - **nlohmann/json** (para leer mapas de Tiled en JSON) **ya viene incluida en el repo**, en
@@ -118,12 +134,13 @@ ejecutable de consola). No hay solución `.sln` ni `CMakeLists.txt` en el repo: 
 
 ### Pasos
 
-1. Instala SDL3 y SDL3_image en `D:\SDL3` y `D:\SDL3_image` (o ajusta las rutas del proyecto).
+1. Instala SDL3, SDL3_image y SDL3_ttf en `D:\SDL3`, `D:\SDL3_image` y `D:\SDL3_ttf` (o ajusta
+   las rutas del proyecto).
 2. Abre `sdl_upc_engine.vcxproj` en Visual Studio 2026.
 3. Selecciona la configuración **x64** (las rutas de SDL y la copia de DLLs/`assets` están
    cableadas para **x64 Debug**).
 4. Compila y ejecuta (F5). El evento post-build copia automáticamente `SDL3.dll`,
-   `SDL3_image.dll` y la carpeta `assets/` junto al ejecutable.
+   `SDL3_image.dll`, `SDL3_ttf.dll` y la carpeta `assets/` junto al ejecutable.
 
 ---
 
@@ -135,7 +152,7 @@ Hay **tres ejemplos** que se cambian en caliente con las teclas numéricas:
 |-------|---------|
 | `1`   | Platformer (lateral con gravedad y salto; personaje de **Pixel Adventure** animado por estado) |
 | `2`   | Top-down (4 direcciones; personaje de **Ninja Adventure** con animación direccional y mundo desde Tiled) |
-| `3`   | Shooter (disparo) |
+| `3`   | Shooter (shmup vertical con scroll de cámara; naves del pack **Kenney Pixel Shmup**, enemigos por *streaming* desde la capa de objetos de Tiled y **HUD de puntaje**) |
 | `F1`  | Prende/apaga el dibujo de debug (colliders, etc.) |
 
 Controles dentro de cada ejemplo:
@@ -199,7 +216,10 @@ ruta en el código.)
   números.
 - **No uses el volteo/rotación de tiles** de Tiled: el parser aún **ignora** esos bits de
   flip (enmascara los 3 bits altos del GID).
-- Hoy se soporta la **capa de tiles**; la capa de objetos de Tiled todavía no se interpreta.
+- Además de la **capa de tiles**, se leen las **capas de objetos** (*objectgroup*):
+  `TiledObjectLayer` las entrega como datos planos (`TiledObject`) y el juego decide qué crear
+  según el `type` (lo usa el shooter para el jugador, enemigos, power-ups y zonas). El motor no
+  interpreta el `type`: esa semántica vive en `game/`.
 
 ---
 
@@ -215,14 +235,16 @@ Proyecto en **desarrollo activo**: el motor crece sesión a sesión a lo largo d
 - Física: `RigidBody2D` (gravedad, `grounded`), `BoxCollider` (AABB, triggers) y fase de
   colisiones en `Scene`.
 - Ciclo de vida: `destroy` diferido, `Lifetime`, `Spawner`.
-- `TilemapRenderer` (código / archivo propio / Tiled JSON) y `Debugger` conmutable.
+- `TilemapRenderer` (código / archivo propio / Tiled JSON, con consultas de tamaño) y
+  `TiledObjectLayer` (capa de objetos como datos planos); `Debugger` conmutable.
+- `TextRenderer` (SDL3_ttf) y HUD de puntaje en el shooter; `AssetManager` cachea fuentes.
 - Tres ejemplos: platformer, top-down y shooter (`1`/`2`/`3`).
 
 **Pendiente (sin orden fijo):**
 
 - `Health` / `Damageable` (vida y condición de derrota).
 - Clase `Input` consultable (`isKeyDown` / `wasPressed`).
-- `TextRenderer` + UI básica (SDL3_ttf): HUD, puntaje, diálogos.
+- UI básica más allá del HUD (diálogos, menús); gestor de escenas (menú → juego → game over).
 - Sistema de tags o capas (reemplazar el filtro por `name`).
 - Audio (SDL3_mixer); mejoras de física (one-way platforms, broad-phase, fricción/rebote);
   handles seguros; parenting de `Transform`; partículas.
@@ -248,7 +270,10 @@ punteros a objetos destruidos.
   (itch.io) — sprites del ejemplo *platformer*. Respeta su licencia si reutilizas o
   redistribuyes los assets.
 - **[Ninja Adventure Asset Pack](https://pixel-boy.itch.io/ninja-adventure-asset-pack)** de
-  **Pixel-boy y AAA** — sprites del ninja y tileset del ejemplo *top-down*. Publicado bajo
-  **CC0** (dominio público; atribución no obligatoria pero apreciada).
+  **Pixel-boy y AAA** — sprites del ninja y tileset del ejemplo *top-down*, y la fuente
+  (`Ui/Font/NormalFont.ttf`) usada en el HUD del shooter. Publicado bajo **CC0** (dominio
+  público; atribución no obligatoria pero apreciada).
+- **[Pixel Shmup](https://kenney.nl/assets/pixel-shmup)** de **Kenney** — naves y tileset del
+  ejemplo *shooter*. Publicado bajo **CC0** (dominio público). Ver `assets/kenney_pixelshmup/License.txt`.
 
 Se usan con fines educativos.
