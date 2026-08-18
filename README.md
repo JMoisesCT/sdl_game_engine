@@ -117,14 +117,36 @@ ejecutable de consola). No hay solución `.sln` ni `CMakeLists.txt` en el repo: 
 ### Requisitos
 
 - **Visual Studio 2026** con el toolset de C++ (PlatformToolset `v145`), C++17.
-- **SDL3**, **SDL3_image** y **SDL3_ttf** instalados **manualmente**. El proyecto los espera en
-  estas rutas (configuradas en `sdl_game_engine.vcxproj`, plataforma **x64**):
-  - Includes: `D:\SDL3\include`, `D:\SDL3_image\include`, `D:\SDL3_ttf\include`
-  - Libs: `D:\SDL3\lib\x64`, `D:\SDL3_image\lib\x64`, `D:\SDL3_ttf\lib\x64`
-  - DLLs: `D:\SDL3\lib\x64\SDL3.dll`, `D:\SDL3_image\lib\x64\SDL3_image.dll`,
-    `D:\SDL3_ttf\lib\x64\SDL3_ttf.dll`
+- **SDL3 y sus librerías satélite instaladas manualmente** (SDL3 **no** viene de vcpkg). Estas
+  son las versiones contra las que se compila el curso — **usa exactamente estas** para que los
+  problemas que reportes sean reproducibles:
 
-  > `SDL3_ttf` se usa para el texto/HUD (fuentes). Se instala igual que `SDL3_image`, a mano.
+  | Librería | Versión | Ruta esperada | Para qué |
+  |---|---|---|---|
+  | **SDL3** | **3.4.14** | `D:\SDL3` | ventana, renderer, input, tiempo |
+  | **SDL3_image** | **3.4.4** | `D:\SDL3_image` | cargar PNG de sprites y tilesets |
+  | **SDL3_ttf** | **3.2.2** | `D:\SDL3_ttf` | texto y HUD (`TextRenderer`) |
+  | **SDL3_mixer** | **3.2.4** | `D:\SDL3_mixer` | audio (aún sin usar, ver nota) |
+
+  Cada una se instala igual: descomprimir el paquete de desarrollo para VC en su carpeta de
+  `D:\`, de modo que queden `<carpeta>\include` y `<carpeta>\lib\x64`. El `.vcxproj`
+  (plataforma **x64**) ya apunta ahí:
+  - Includes: `D:\SDL3\include`, `D:\SDL3_image\include`, `D:\SDL3_mixer\include`,
+    `D:\SDL3_ttf\include`
+  - Libs: `D:\SDL3\lib\x64`, `D:\SDL3_image\lib\x64`, `D:\SDL3_ttf\lib\x64`,
+    `D:\SDL3_mixer\lib\x64`
+  - DLLs copiadas por el post-build: `SDL3.dll`, `SDL3_image.dll`, `SDL3_ttf.dll`,
+    `SDL3_mixer.dll`
+
+  > **Sobre SDL3_mixer:** ya está **instalado y enlazado** en el proyecto (lib + copia de DLL),
+  > pero el motor **todavía no tiene un componente `AudioSource`**: la dependencia está lista
+  > de antemano para la sesión de audio. Enlazarla sin usarla no hace daño.
+  >
+  > Cuando se implemente el audio, ten en cuenta que SDL3_mixer reproduce **WAV** de fábrica,
+  > mientras que los formatos extra (OGG Vorbis, Opus, WavPack, módulos, GME) se apoyan en las
+  > DLLs sueltas de `D:\SDL3_mixer\lib\x64\optional\`, que el post-build **no** copia hoy. Si el
+  > curso usa música en OGG habrá que agregarlas al `PostBuildEvent`.
+  >
   > Si instalaste SDL3 en otra ruta, ajusta `AdditionalIncludeDirectories`,
   > `AdditionalLibraryDirectories` y el `PostBuildEvent` del `.vcxproj`.
 - **nlohmann/json** (para leer mapas de Tiled en JSON) **ya viene incluida en el repo**, en
@@ -134,13 +156,15 @@ ejecutable de consola). No hay solución `.sln` ni `CMakeLists.txt` en el repo: 
 
 ### Pasos
 
-1. Instala SDL3, SDL3_image y SDL3_ttf en `D:\SDL3`, `D:\SDL3_image` y `D:\SDL3_ttf` (o ajusta
-   las rutas del proyecto).
+1. Instala SDL3, SDL3_image, SDL3_ttf y SDL3_mixer en `D:\SDL3`, `D:\SDL3_image`,
+   `D:\SDL3_ttf` y `D:\SDL3_mixer` (o ajusta las rutas del proyecto), en las versiones de la
+   tabla de arriba.
 2. Abre `sdl_game_engine.vcxproj` en Visual Studio 2026.
 3. Selecciona la configuración **x64** (las rutas de SDL y la copia de DLLs/`assets` están
    cableadas para **x64 Debug**).
 4. Compila y ejecuta (F5). El evento post-build copia automáticamente `SDL3.dll`,
-   `SDL3_image.dll`, `SDL3_ttf.dll` y la carpeta `assets/` junto al ejecutable.
+   `SDL3_image.dll`, `SDL3_ttf.dll`, `SDL3_mixer.dll` y la carpeta `assets/` junto al
+   ejecutable.
 
 ---
 
@@ -246,8 +270,11 @@ Proyecto en **desarrollo activo**: el motor crece sesión a sesión a lo largo d
 - Clase `Input` consultable (`isKeyDown` / `wasPressed`).
 - UI básica más allá del HUD (diálogos, menús); gestor de escenas (menú → juego → game over).
 - Sistema de tags o capas (reemplazar el filtro por `name`).
-- Audio (SDL3_mixer); mejoras de física (one-way platforms, broad-phase, fricción/rebote);
-  handles seguros; parenting de `Transform`; partículas.
+- `AudioSource` (efectos y música). **SDL3_mixer 3.2.4 ya está instalado y enlazado**; falta
+  el componente del motor que lo use.
+- Mejoras de física (one-way platforms, broad-phase, fricción/rebote); handles seguros;
+  parenting de `Transform`; partículas.
+- En Tiled siguen sin soportarse los **tiles volteados** (se ignoran los bits de flip del GID).
 
 **Limitaciones conocidas:** colisiones O(n²) (bien para decenas de objetos, no miles); la
 resolución por pares puede temblar con colliders apilados; no hay desregistro automático de
