@@ -60,7 +60,7 @@
     <VCProjectVersion>17.0</VCProjectVersion>
     <Keyword>Win32Proj</Keyword>
     <ProjectGuid>{C35AE344-1DB7-4C8C-87AC-39369D5DF91E}</ProjectGuid>
-    <RootNamespace>Semana4</RootNamespace>
+    <RootNamespace>sdl_game_engine</RootNamespace>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />

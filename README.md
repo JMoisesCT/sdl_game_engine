@@ -1,4 +1,4 @@
-# sdl_upc_engine — Motor 2D educativo sobre SDL3
+# sdl_game_engine — Motor 2D educativo sobre SDL3
 
 Motor de videojuegos **2D ligero, estilo componentes** (similar a Unity), construido sobre
 **SDL3**. Su propósito es educativo: que estudiantes que ya conocen SDL3 básico (ventana,
@@ -72,7 +72,7 @@ Idea general (en pocas líneas):
 ## Estructura del proyecto
 
 ```
-sdl_upc_engine/
+sdl_game_engine/
 ├── engine/                 # El MOTOR (código genérico, no conoce ningún juego)
 │   ├── Component.h         #   base de todos los componentes
 │   ├── GameObject.h        #   objeto contenedor de componentes
@@ -100,7 +100,7 @@ sdl_upc_engine/
 │   ├── ninja_adventure/    #   sprites/tileset (top-down) y fuente del HUD (Ui/Font)
 │   ├── kenney_pixelshmup/  #   naves y tileset del pack Kenney Pixel Shmup (shooter)
 │   └── maps/               #   niveles de Tiled (.json/.tmx) y mapa propio (.map)
-└── sdl_upc_engine.vcxproj  # Proyecto de Visual Studio (un solo ejecutable)
+└── sdl_game_engine.vcxproj # Proyecto de Visual Studio (un solo ejecutable)
 ```
 
 `engine/` es **genérico**: nunca contiene nombres de un juego concreto (nada de "Player" o
@@ -118,7 +118,7 @@ ejecutable de consola). No hay solución `.sln` ni `CMakeLists.txt` en el repo: 
 
 - **Visual Studio 2026** con el toolset de C++ (PlatformToolset `v145`), C++17.
 - **SDL3**, **SDL3_image** y **SDL3_ttf** instalados **manualmente**. El proyecto los espera en
-  estas rutas (configuradas en `sdl_upc_engine.vcxproj`, plataforma **x64**):
+  estas rutas (configuradas en `sdl_game_engine.vcxproj`, plataforma **x64**):
   - Includes: `D:\SDL3\include`, `D:\SDL3_image\include`, `D:\SDL3_ttf\include`
   - Libs: `D:\SDL3\lib\x64`, `D:\SDL3_image\lib\x64`, `D:\SDL3_ttf\lib\x64`
   - DLLs: `D:\SDL3\lib\x64\SDL3.dll`, `D:\SDL3_image\lib\x64\SDL3_image.dll`,
@@ -136,7 +136,7 @@ ejecutable de consola). No hay solución `.sln` ni `CMakeLists.txt` en el repo: 
 
 1. Instala SDL3, SDL3_image y SDL3_ttf en `D:\SDL3`, `D:\SDL3_image` y `D:\SDL3_ttf` (o ajusta
    las rutas del proyecto).
-2. Abre `sdl_upc_engine.vcxproj` en Visual Studio 2026.
+2. Abre `sdl_game_engine.vcxproj` en Visual Studio 2026.
 3. Selecciona la configuración **x64** (las rutas de SDL y la copia de DLLs/`assets` están
    cableadas para **x64 Debug**).
 4. Compila y ejecuta (F5). El evento post-build copia automáticamente `SDL3.dll`,
