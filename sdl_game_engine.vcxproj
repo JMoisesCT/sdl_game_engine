@@ -140,20 +140,21 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>D:\SDL3\include; D:\SDL3_image\include; D:\SDL3_ttf\include; $(ProjectDir)engine\third_party</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>D:\SDL3\include;D:\SDL3_image\include;D:\SDL3_mixer\include;D:\SDL3_ttf\include;$(ProjectDir)engine\third_party</AdditionalIncludeDirectories>
       <LanguageStandard>stdcpp17</LanguageStandard>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalLibraryDirectories>D:\SDL3\lib\x64;D:\SDL3_image\lib\x64;D:\SDL3_ttf\lib\x64;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>SDL3.lib;SDL3_image.lib;SDL3_ttf.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>D:\SDL3\lib\x64;D:\SDL3_image\lib\x64;D:\SDL3_ttf\lib\x64;D:\SDL3_mixer\lib\x64;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>SDL3.lib;SDL3_image.lib;SDL3_ttf.lib;SDL3_mixer.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <PostBuildEvent>
       <Command>xcopy /y "D:\SDL3\lib\x64\SDL3.dll" "$(OutDir)"
 xcopy /y "D:\SDL3_image\lib\x64\SDL3_image.dll" "$(OutDir)"
-xcopy /y "D:\SDL3_ttf\lib\x64\SDL3_ttf.dll" "$(OutDir)"
-xcopy /Y /E /I "$(ProjectDir)assets" "$(OutDir)assets"</Command>
+ xcopy /y "D:\SDL3_ttf\lib\x64\SDL3_ttf.dll" "$(OutDir)"
+ xcopy /y "D:\SDL3_mixer\lib\x64\SDL3_mixer.dll" "$(OutDir)"
+ xcopy /Y /E /I "$(ProjectDir)assets" "$(OutDir)assets"</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
