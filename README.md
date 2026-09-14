@@ -136,16 +136,18 @@ ejecutable de consola). No hay solución `.sln` ni `CMakeLists.txt` en el repo: 
   - Libs: `D:\SDL3\lib\x64`, `D:\SDL3_image\lib\x64`, `D:\SDL3_ttf\lib\x64`,
     `D:\SDL3_mixer\lib\x64`
   - DLLs copiadas por el post-build: `SDL3.dll`, `SDL3_image.dll`, `SDL3_ttf.dll`,
-    `SDL3_mixer.dll`
+    `SDL3_mixer.dll`, más `libogg-0.dll`, `libopus-0.dll` y `libopusfile-0.dll` (de
+    `D:\SDL3_mixer\lib\x64\optional\`)
 
   > **Sobre SDL3_mixer:** ya está **instalado y enlazado** en el proyecto (lib + copia de DLL),
   > pero el motor **todavía no tiene un componente `AudioSource`**: la dependencia está lista
   > de antemano para la sesión de audio. Enlazarla sin usarla no hace daño.
   >
-  > Cuando se implemente el audio, ten en cuenta que SDL3_mixer reproduce **WAV** de fábrica,
-  > mientras que los formatos extra (OGG Vorbis, Opus, WavPack, módulos, GME) se apoyan en las
-  > DLLs sueltas de `D:\SDL3_mixer\lib\x64\optional\`, que el post-build **no** copia hoy. Si el
-  > curso usa música en OGG habrá que agregarlas al `PostBuildEvent`.
+  > Para que la música en **OGG** funcione el día de esa sesión, el post-build ya copia además
+  > las DLLs de la familia Ogg: `libogg-0.dll`, `libopus-0.dll` y `libopusfile-0.dll`. Con eso
+  > quedan cubiertos WAV, **OGG Vorbis** (decodificador interno de SDL3_mixer, ni siquiera
+  > necesita DLL) y **Opus**. Los formatos que siguen sin copiarse de `optional\` son WavPack
+  > (`libwavpack-1.dll`), módulos tipo MOD/XM (`libxmp.dll`) y GME (`libgme.dll`).
   >
   > Si instalaste SDL3 en otra ruta, ajusta `AdditionalIncludeDirectories`,
   > `AdditionalLibraryDirectories` y el `PostBuildEvent` del `.vcxproj`.
@@ -160,11 +162,12 @@ ejecutable de consola). No hay solución `.sln` ni `CMakeLists.txt` en el repo: 
    `D:\SDL3_ttf` y `D:\SDL3_mixer` (o ajusta las rutas del proyecto), en las versiones de la
    tabla de arriba.
 2. Abre `sdl_game_engine.vcxproj` en Visual Studio 2026.
-3. Selecciona la configuración **x64** (las rutas de SDL y la copia de DLLs/`assets` están
-   cableadas para **x64 Debug**).
+3. Selecciona la plataforma **x64**. Sirven tanto **Debug** como **Release**: las dos tienen
+   cableadas las rutas de SDL y la copia de DLLs/`assets`. Las configuraciones **Win32 no
+   están soportadas** (las librerías instaladas son x64).
 4. Compila y ejecuta (F5). El evento post-build copia automáticamente `SDL3.dll`,
-   `SDL3_image.dll`, `SDL3_ttf.dll`, `SDL3_mixer.dll` y la carpeta `assets/` junto al
-   ejecutable.
+   `SDL3_image.dll`, `SDL3_ttf.dll`, `SDL3_mixer.dll`, las tres DLLs de Ogg/Opus y la
+   carpeta `assets/` junto al ejecutable.
 
 ---
 
