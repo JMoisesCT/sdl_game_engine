@@ -74,12 +74,13 @@ void SpriteAnimator::addLineAnimation(const std::string& name, const std::string
     clips[name] = std::move(clip);
 }
 
-void SpriteAnimator::play(const std::string& name) {
-    if (current == name) return;                  // ya esta sonando
+void SpriteAnimator::play(const std::string& name, bool restart) {
+    if (current == name && !restart) return;      // ya esta sonando
     if (clips.find(name) == clips.end()) return;  // no existe
     current = name;
     currentIndex = 0;
     timer = 0.0f;
+    finished = false;                             // el clip nuevo arranca sin terminar
     applyFrame();
 }
 
@@ -90,8 +91,12 @@ void SpriteAnimator::update(float dt) {
     Clip& clip = clips[current];
     if (clip.frames.empty() || clip.fps <= 0.0f) { applyFrame(); return; }
 
+    if (finished) { applyFrame(); return; } // clip no-loop terminado: se queda quieto
+
     timer += dt;
     float frameTime = 1.0f / clip.fps;
+
+    bool justFinished = false;
 
     // Avanza tantos cuadros como corresponda al tiempo acumulado.
     while (timer >= frameTime) {
@@ -102,11 +107,20 @@ void SpriteAnimator::update(float dt) {
                 currentIndex = 0;
             } else {
                 currentIndex = (int)clip.frames.size() - 1; // se queda en el ultimo
+                finished = true;
+                justFinished = true;
                 break;
             }
         }
     }
     applyFrame();
+
+    // El aviso va AL FINAL y con una copia del nombre: el callback puede cambiar de
+    // animacion o destruir el objeto, asi que despues de llamarlo no tocamos nada mas.
+    if (justFinished && onComplete) {
+        std::string clipName = current;
+        onComplete(clipName);
+    }
 }
 
 void SpriteAnimator::applyFrame() {

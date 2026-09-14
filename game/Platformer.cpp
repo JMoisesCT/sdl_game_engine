@@ -9,65 +9,42 @@
 #include "../engine/Input.h"
 #include "../engine/SpriteRenderer.h"
 #include "../engine/SpriteAnimator.h"
+#include "../engine/AnimatorStateMachine.h"
 #include "../engine/RigidBody2D.h"
 #include "../engine/BoxCollider.h"
+#include "../engine/PlatformerMotor.h"
 #include "../engine/TilemapRenderer.h"
 #include "../engine/Camera.h"
 #include "../engine/FollowCamera.h"
 
-// Izquierda/derecha + salto con espacio. El flanco de la tecla ("se acaba de
-// presionar") lo da Input::wasPressed: el componente ya no necesita acordarse del
-// estado del frame anterior ni hablar con SDL.
+// Traduce TECLAS a INTENCION para el PlatformerMotor. Eso es todo lo que hace: no sabe
+// de gravedad, de coyote time ni de saltos dobles; de eso se ocupa el motor, que es del
+// engine y sirve para cualquier plataformas. Cambiar los controles (o enchufarle un
+// mando, o una IA) es cambiar solo este componente.
 class PlatformerController : public Component {
 public:
-    float speed = 250.0f, jump = 650.0f;
-
-    // start() corre UNA vez, al comienzo del primer frame, con el objeto ya completo.
-    // Por eso aqui se pueden resolver los componentes hermanos de una sola vez, en
-    // lugar de buscarlos con getComponent en cada update.
     void start() override {
-        rb     = gameObject->getComponent<RigidBody2D>();
+        motor  = gameObject->getComponent<PlatformerMotor>();
         sprite = gameObject->getComponent<SpriteRenderer>();
-        anim   = gameObject->getComponent<SpriteAnimator>();
     }
 
-    void update(float dt) override {
-        float moveX = Input::axis(Key::Left, Key::Right); // -1, 0 o +1
-        if (rb) rb->velocityX = moveX * speed;
+    void update(float) override {
+        if (!motor) return;
+        motor->moveInput   = Input::axis(Key::Left, Key::Right); // -1, 0 o +1
+        motor->jumpPressed = Input::wasPressed(Key::Space);      // flanco: un solo frame
+        motor->jumpHeld    = Input::isDown(Key::Space);          // para el salto corto
 
-        // "Coyote time": ventana de gracia para saltar apenas despues de dejar el
-        // borde de una plataforma. Es DISENO (el salto se siente mas permisivo), no
-        // un parche: el parpadeo del grounded que habia antes venia de medir el dt en
-        // milisegundos, y eso ya se corrigio en el bucle de main (SDL_GetTicksNS).
-        if (rb && rb->grounded) coyote = coyoteTime;
-        else if (coyote > 0.0f) coyote -= dt;
-
-        if (rb && Input::wasPressed(Key::Space) && coyote > 0.0f) {
-            rb->velocityY = -jump;
-            coyote = 0.0f; // consumir la ventana: evita doble salto en el mismo apoyo
-        }
-
-        if (sprite) { if (moveX < 0) sprite->flipX = true; else if (moveX > 0) sprite->flipX = false; }
-
-        // Animacion segun el estado fisico. Evaluamos PRIMERO si esta en el suelo: si
-        // lo esta, solo elegimos entre run/idle sin mirar velocityY (la gravedad lo
-        // deja ligeramente positivo cada frame y dispararia "fall" por error). Se usa
-        // el coyote como suelo SUAVIZADO para que un microcorte del apoyo no reinicie
-        // la animacion de correr (play() reinicia el clip al cambiar de nombre).
-        if (anim && rb) {
-            bool onGround = coyote > 0.0f;
-            if (onGround) anim->play(moveX != 0.0f ? "run" : "idle");
-            else          anim->play(rb->velocityY < 0.0f ? "jump" : "fall");
+        // Hacia donde mira el sprite. Es presentacion, no fisica: por eso vive aqui y
+        // no en el motor.
+        if (sprite) {
+            if (motor->moveInput < 0.0f)      sprite->flipX = true;
+            else if (motor->moveInput > 0.0f) sprite->flipX = false;
         }
     }
 
 private:
-    RigidBody2D*    rb     = nullptr; // hermanos, resueltos en start()
-    SpriteRenderer* sprite = nullptr;
-    SpriteAnimator* anim   = nullptr;
-
-    float coyote = 0.0f;                         // tiempo restante de la ventana de salto
-    static constexpr float coyoteTime = 0.1f;    // segundos de gracia tras el ultimo contacto
+    PlatformerMotor* motor  = nullptr;
+    SpriteRenderer*  sprite = nullptr;
 };
 
 void buildPlatformer(Scene& scene) {
@@ -75,12 +52,31 @@ void buildPlatformer(Scene& scene) {
     player->transform->y = -150.0f;
     player->transform->scaleX = player->transform->scaleY = 4.0f;
 
-    // ORDEN DE LOS COMPONENTES = orden de actualizacion. El controlador va PRIMERO
-    // para que la velocidad que escribe la integre el RigidBody2D en este mismo
-    // frame (si fuera al reves, el input llegaria con un frame de retraso), y el
-    // SpriteAnimator va DESPUES para que dibuje el estado recien decidido.
+    // ORDEN DE LOS COMPONENTES = orden de actualizacion (el GameObject los recorre en
+    // orden de insercion). La cadena de cada frame es:
+    //   controlador (teclas -> intencion)
+    //     -> PlatformerMotor (intencion -> velocidad)
+    //       -> RigidBody2D (velocidad -> posicion)
+    //         -> [fase de fisica de la Scene: choques y 'grounded']
+    // Si el controlador fuera despues del motor, el input llegaria un frame tarde.
     player->addComponent<PlatformerController>();
-    player->addComponent<RigidBody2D>(); // con gravedad
+
+    // Aqui estan TODAS las perillas del "game feel". Vale la pena tocarlas y ver como
+    // cambia el personaje: es el ejercicio mas barato y mas ilustrativo del motor.
+    auto motor = player->addComponent<PlatformerMotor>();
+    motor->maxSpeed   = 250.0f;  // velocidad de carrera
+    motor->accel      = 2200.0f; // que tan rapido llega a esa velocidad (arranque)
+    motor->decel      = 2600.0f; // que tan rapido se detiene al soltar (frenado)
+    motor->airAccel   = 1400.0f; // menos control en el aire que en el suelo
+    motor->airDecel   = 700.0f;
+    motor->jumpHeight = 200.0f;  // px de mundo: ~3 tiles de 64 px
+    motor->coyoteTime = 0.10f;   // gracia para saltar tras dejar el borde
+    motor->jumpBufferTime = 0.12f;    // gracia para saltar justo antes de aterrizar
+    motor->cutJumpMultiplier = 0.45f; // soltar el boton = salto corto (1.0 lo desactiva)
+    motor->maxFallSpeed = 900.0f;
+    motor->maxAirJumps  = 0;     // pon 1 y tienes doble salto
+
+    player->addComponent<RigidBody2D>(); // con gravedad; el motor le escribe la velocidad
     auto col = player->addComponent<BoxCollider>();
     col->width = 64.0f; col->height = 110.0f; col->offsetY = 8.0f; // ajustado al cuerpo
 
@@ -94,6 +90,16 @@ void buildPlatformer(Scene& scene) {
     anim->addStripAnimation("jump", mask + "Jump (32x32).png", 32, 32, 20.0f);
     anim->addStripAnimation("fall", mask + "Fall (32x32).png", 32, 32, 20.0f);
     anim->play("idle");
+
+    // Que animacion suena, como REGLAS en vez de una cascada de if. Gana la PRIMERA
+    // regla que se cumple, asi que el orden es la prioridad: primero lo del aire (mas
+    // especifico), despues correr, y si no se cumple ninguna queda "idle".
+    // Va al final para que lea el estado que el motor acaba de calcular en este frame.
+    auto fsm = player->addComponent<AnimatorStateMachine>();
+    fsm->setDefaultState("idle");
+    fsm->addState("jump", [motor] { return !motor->isGrounded() && motor->isRising(); });
+    fsm->addState("fall", [motor] { return !motor->isGrounded(); });
+    fsm->addState("run",  [motor] { return motor->moveInput != 0.0f; });
 
     // Suelo y plataformas con un TilemapRenderer real (reemplaza el cuadrado estirado).
     // El mapa se carga desde un archivo de texto (contenido del juego, en assets/);

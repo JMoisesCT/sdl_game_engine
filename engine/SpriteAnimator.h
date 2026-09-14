@@ -1,5 +1,7 @@
 #pragma once
+#include <functional>
 #include <string>
+#include <utility>
 #include <vector>
 #include <unordered_map>
 #include "Component.h"
@@ -59,7 +61,24 @@ public:
     void addRowAnimation(const std::string& name, const std::string& path,
                          int frameW, int frameH, int row, float fps, bool loop = true);
 
-    void play(const std::string& name); // cambia la animacion actual (no reinicia si ya suena)
+    // Cambia la animacion actual. Si YA esta sonando esa misma no hace nada (por eso se
+    // puede llamar en cada frame sin cortarla); restart = true la reinicia igualmente,
+    // util para repetir un clip de un solo uso (un golpe, un salto doble).
+    void play(const std::string& name, bool restart = false);
+
+    // Solo para clips NO-loop (loop = false): true cuando el clip actual llego a su
+    // ultimo cuadro y se quedo ahi. Un clip en loop nunca termina: siempre da false.
+    bool isFinished() const { return finished; }
+
+    // Se llama UNA sola vez cuando un clip no-loop termina, con el nombre de ese clip.
+    // Sirve para encadenar: "al terminar 'die', destruir el objeto", "al terminar
+    // 'attack', volver a idle". Ojo: se invoca desde el update del animator.
+    void setOnComplete(std::function<void(const std::string&)> callback) {
+        onComplete = std::move(callback);
+    }
+
+    // Nombre del clip que suena ahora (vacio si todavia no se llamo a play).
+    const std::string& getCurrentAnimation() const { return current; }
 
     void update(float dt) override;
 
@@ -81,6 +100,8 @@ private:
     std::string current;
     int   currentIndex = 0;
     float timer = 0.0f;
+    bool  finished = false; // el clip no-loop actual ya llego al final?
+    std::function<void(const std::string&)> onComplete; // aviso de fin de clip no-loop
 
     void applyFrame(); // pasa textura (si toca) y recorte del cuadro actual al SpriteRenderer
 };

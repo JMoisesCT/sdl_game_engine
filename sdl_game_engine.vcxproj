@@ -25,6 +25,7 @@
     <ClCompile Include="engine\Debugger.cpp" />
     <ClCompile Include="engine\FollowCamera.cpp" />
     <ClCompile Include="engine\Input.cpp" />
+    <ClCompile Include="engine\PlatformerMotor.cpp" />
     <ClCompile Include="engine\Scene.cpp" />
     <ClCompile Include="engine\SpriteAnimator.cpp" />
     <ClCompile Include="engine\SpriteRenderer.cpp" />
@@ -37,6 +38,7 @@
     <ClCompile Include="main.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="engine\AnimatorStateMachine.h" />
     <ClInclude Include="engine\AssetManager.h" />
     <ClInclude Include="engine\BoxCollider.h" />
     <ClInclude Include="engine\Camera.h" />
@@ -45,6 +47,7 @@
     <ClInclude Include="engine\FollowCamera.h" />
     <ClInclude Include="engine\GameObject.h" />
     <ClInclude Include="engine\Input.h" />
+    <ClInclude Include="engine\PlatformerMotor.h" />
     <ClInclude Include="engine\RigidBody2D.h" />
     <ClInclude Include="engine\Scene.h" />
     <ClInclude Include="engine\SpriteAnimator.h" />
