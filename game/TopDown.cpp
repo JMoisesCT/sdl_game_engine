@@ -8,6 +8,7 @@
 #include "../engine/GameObject.h"
 #include "../engine/Component.h"
 #include "../engine/Transform.h"
+#include "../engine/Input.h"
 #include "../engine/SpriteRenderer.h"
 #include "../engine/SpriteAnimator.h"
 #include "../engine/TilemapRenderer.h"
@@ -23,16 +24,15 @@ public:
     float speed = 160.0f;
     std::string lastDir = "down"; // ultima direccion mirada (arranca mirando abajo)
 
-    void update(float) override {
-        const bool* keys = SDL_GetKeyboardState(nullptr);
-        auto rb   = gameObject->getComponent<RigidBody2D>();
-        auto anim = gameObject->getComponent<SpriteAnimator>();
+    // Componentes hermanos resueltos una sola vez (start corre con el objeto ya completo).
+    void start() override {
+        rb   = gameObject->getComponent<RigidBody2D>();
+        anim = gameObject->getComponent<SpriteAnimator>();
+    }
 
-        float mx = 0.0f, my = 0.0f;
-        if (keys[SDL_SCANCODE_LEFT])  mx -= 1.0f;
-        if (keys[SDL_SCANCODE_RIGHT]) mx += 1.0f;
-        if (keys[SDL_SCANCODE_UP])    my -= 1.0f;
-        if (keys[SDL_SCANCODE_DOWN])  my += 1.0f;
+    void update(float) override {
+        float mx = Input::axis(Key::Left, Key::Right);
+        float my = Input::axis(Key::Up,   Key::Down);
         if (rb) { rb->velocityX = mx * speed; rb->velocityY = my * speed; }
 
         bool moving = (mx != 0.0f || my != 0.0f);
@@ -50,6 +50,10 @@ public:
         // direccion es un sprite distinto, no un volteado.
         if (anim) anim->play((moving ? "walk_" : "idle_") + lastDir);
     }
+
+private:
+    RigidBody2D*    rb   = nullptr;
+    SpriteAnimator* anim = nullptr;
 };
 
 void buildTopDown(Scene& scene) {

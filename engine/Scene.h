@@ -20,7 +20,10 @@ public:
         obj->scene = this;
         GameObject* ptr = obj.get();
         objects.push_back(std::move(obj));
-        ptr->start();
+        // OJO: aqui NO se llama start(). El objeto recien creado todavia no tiene
+        // ningun componente aparte de su Transform: los agrega el codigo que viene
+        // despues de este return. El start() de cada componente lo dispara
+        // Scene::update al comienzo del frame siguiente, con el objeto ya completo.
         return ptr;
     }
 
@@ -32,6 +35,10 @@ public:
         // Conteo fijo: los objetos que se creen durante el frame (spawners) se
         // agregan al final y NO se actualizan hasta el siguiente frame.
         size_t count = objects.size();
+        // 1) start() pendiente: en su propia pasada y ANTES de los updates, para que un
+        //    start pueda mirar a otros objetos que ya arrancaron en este mismo frame.
+        for (size_t i = 0; i < count; ++i) objects[i]->startPending();
+        // 2) update de todos.
         for (size_t i = 0; i < count; ++i) objects[i]->update(dt);
 
         resolveCollisions();

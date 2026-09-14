@@ -11,6 +11,7 @@
 #include "../engine/GameObject.h"
 #include "../engine/Component.h"
 #include "../engine/Transform.h"
+#include "../engine/Input.h"
 #include "../engine/SpriteRenderer.h"
 #include "../engine/TilemapRenderer.h"
 #include "../engine/TiledObjectLayer.h"
@@ -198,15 +199,11 @@ class ShooterController : public Component {
 public:
     float speed = 260.0f; // px/seg del movimiento dentro de la pantalla
     void update(float dt) override {
-        const bool* keys = SDL_GetKeyboardState(nullptr);
         Transform* t = gameObject->transform;
 
         // Input: 4 direcciones, movimiento por Transform directo (sin RigidBody).
-        float mx = 0.0f, my = 0.0f;
-        if (keys[SDL_SCANCODE_LEFT])  mx -= 1.0f;
-        if (keys[SDL_SCANCODE_RIGHT]) mx += 1.0f;
-        if (keys[SDL_SCANCODE_UP])    my -= 1.0f;
-        if (keys[SDL_SCANCODE_DOWN])  my += 1.0f;
+        float mx = Input::axis(Key::Left, Key::Right);
+        float my = Input::axis(Key::Up,   Key::Down);
         t->x += mx * speed * dt;
         t->y += my * speed * dt;
 
@@ -225,12 +222,11 @@ public:
             if (t->y > bottom - m) t->y = bottom - m;
         }
 
-        bool shootNow = keys[SDL_SCANCODE_SPACE];
-        if (shootNow && !shootPrev) shoot();
-        shootPrev = shootNow;
+        // Un disparo por pulsacion: el flanco lo da Input, no una copia local del
+        // estado del frame anterior.
+        if (Input::wasPressed(Key::Space)) shoot();
     }
 private:
-    bool shootPrev = false;
     void shoot() {
         Scene* scene = gameObject->scene;
         GameObject* bala = scene->createGameObject("Bala");
