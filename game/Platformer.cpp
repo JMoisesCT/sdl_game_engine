@@ -76,27 +76,27 @@ private:
 // solo pinta el string que le pasamos. Mismo patron que el HudScore del shooter.
 class FruitHud : public Component {
 public:
-    TextRenderer* label = nullptr;
+    TextRenderer* label  = nullptr; // contador, pegado a la esquina
+    TextRenderer* banner = nullptr; // cartel de "nivel completado", centrado
     int collected = 0;
     int total     = 0;
 
     void add(int n) { collected += n; }
-    void setMessage(const std::string& m) { message = m; dirty = true; }
+
+    // El aviso de meta NO se concatena al contador: va en su propio TextRenderer. Si
+    // se pegaran en la misma cadena, al crecer el texto el renglon entero se recentra
+    // y el contador parece saltar de sitio.
+    void setMessage(const std::string& m) { if (banner) banner->setText(m); }
 
     void update(float) override {
-        if (!dirty && collected == shown) return;
+        if (collected == shown) return;
         shown = collected;
-        dirty = false;
-        if (!label) return;
-        std::string txt = "FRUTAS: " + std::to_string(collected) + "/" + std::to_string(total);
-        if (!message.empty()) txt += "   " + message;
-        label->setText(txt);
+        if (label)
+            label->setText("FRUTAS: " + std::to_string(collected) + "/" + std::to_string(total));
     }
 
 private:
-    std::string message;
-    int  shown = -1;      // distinto de collected: fuerza el primer refresco
-    bool dirty = true;
+    int shown = -1; // distinto de collected: fuerza el primer refresco
 };
 
 // --- Coleccionable --------------------------------------------------------------
@@ -289,16 +289,38 @@ void buildPlatformer(Scene& scene) {
     tilemap->addComponent<TilemapCollider>();
 
     // --- HUD ---------------------------------------------------------------------
+    // Tamano real de la ventana: el cartel de meta se centra en pantalla y el contador
+    // se pega a la esquina, sin cablear 1280x720.
+    int screenW = 0, screenH = 0;
+    SDL_GetCurrentRenderOutputSize(scene.getRenderer(), &screenW, &screenH);
+
     GameObject* hudObj = scene.createGameObject("HUD");
     hudObj->sortingOrder = LAYER_HUD;
-    hudObj->transform->x = 200.0f; // coordenadas de PANTALLA (screenSpace)
-    hudObj->transform->y = 40.0f;
+    hudObj->transform->x = 24.0f;  // coordenadas de PANTALLA (screenSpace)
+    hudObj->transform->y = 32.0f;
     auto label = hudObj->addComponent<TextRenderer>();
     label->screenSpace = true;
+    // Anclado a la IZQUIERDA: el contador cambia de longitud al pasar de 0/3 a 3/3, y
+    // con el anclaje al centro se moveria solo.
+    label->align = TextAlign::Left;
     label->setFont(scene.getAssets().loadFont(HUD_FONT, HUD_SIZE));
     label->setColor(TextColor{ 255, 255, 255, 255 });
+
+    // Cartel de meta: objeto aparte, centrado arriba, vacio hasta que haga falta (un
+    // TextRenderer sin texto no dibuja nada).
+    GameObject* bannerObj = scene.createGameObject("HUDBanner");
+    bannerObj->sortingOrder = LAYER_HUD;
+    bannerObj->transform->x = screenW * 0.5f;
+    bannerObj->transform->y = 96.0f;
+    auto banner = bannerObj->addComponent<TextRenderer>();
+    banner->screenSpace = true;
+    banner->align = TextAlign::Center;
+    banner->setFont(scene.getAssets().loadFont(HUD_FONT, HUD_SIZE));
+    banner->setColor(TextColor{ 255, 232, 96, 255 }); // amarillo, para que destaque
+
     auto hud = hudObj->addComponent<FruitHud>();
-    hud->label = label;
+    hud->label  = label;
+    hud->banner = banner;
 
     // --- Contenido desde la capa de objetos de Tiled -----------------------------
     // El motor NO sabe que significa cada "type": entrega los objetos como datos y la

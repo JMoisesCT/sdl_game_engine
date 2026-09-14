@@ -15,6 +15,16 @@ struct TextColor {
     unsigned char a = 255;
 };
 
+// Donde cae el Transform respecto al texto, en horizontal:
+//   Center = el Transform es el CENTRO (por defecto; util para titulos y carteles)
+//   Left   = el Transform es el borde IZQUIERDO
+//   Right  = el Transform es el borde DERECHO
+// Importa mas de lo que parece en un HUD: con Center, un contador que pasa de
+// "FRUTAS: 0/3" a un texto mas largo se RECENTRA y parece que el marcador salta de
+// sitio. Un contador que cambia de longitud casi siempre quiere Left (o Right).
+// En vertical el Transform siempre es el centro del renglon.
+enum class TextAlign { Center, Left, Right };
+
 // Dibuja una cadena de texto con una fuente cacheada. NO maneja logica (puntaje,
 // mensajes): solo pinta el string que se le da.
 //
@@ -40,6 +50,7 @@ public:
     void setColor(TextColor c);
 
     bool screenSpace = true; // true = HUD (ignora camara); false = texto en el mundo
+    TextAlign align = TextAlign::Center; // donde cae el Transform en horizontal
 
     void render() override;
     ~TextRenderer() override;

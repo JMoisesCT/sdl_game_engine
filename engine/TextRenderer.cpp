@@ -86,11 +86,20 @@ void TextRenderer::render() {
     float drawW = texW * zoom;
     float drawH = texH * zoom;
 
-    // Anclado al centro y en coordenadas ENTERAS (nitidez de pixel art).
+    // Anclaje horizontal segun 'align' y coordenadas ENTERAS (nitidez de pixel art).
+    // Con Left/Right el borde queda clavado, asi que un texto que cambia de longitud
+    // (un contador) no arrastra al resto del renglon al recentrarse.
+    float originX;
+    switch (align) {
+    case TextAlign::Left:  originX = centerX;             break;
+    case TextAlign::Right: originX = centerX - drawW;     break;
+    default:               originX = centerX - drawW * 0.5f; break; // Center
+    }
+
     SDL_FRect dst;
     dst.w = drawW;
     dst.h = drawH;
-    dst.x = SDL_roundf(centerX - drawW * 0.5f);
+    dst.x = SDL_roundf(originX);
     dst.y = SDL_roundf(centerY - drawH * 0.5f);
 
     SDL_RenderTexture(renderer, texture, nullptr, &dst);
