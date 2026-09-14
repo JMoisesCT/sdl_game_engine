@@ -26,6 +26,8 @@
     <ClCompile Include="engine\FollowCamera.cpp" />
     <ClCompile Include="engine\Input.cpp" />
     <ClCompile Include="engine\PlatformerMotor.cpp" />
+    <ClCompile Include="engine\ParallaxBackground.cpp" />
+    <ClCompile Include="engine\TilemapCollider.cpp" />
     <ClCompile Include="engine\Scene.cpp" />
     <ClCompile Include="engine\SpriteAnimator.cpp" />
     <ClCompile Include="engine\SpriteRenderer.cpp" />
@@ -48,6 +50,8 @@
     <ClInclude Include="engine\GameObject.h" />
     <ClInclude Include="engine\Input.h" />
     <ClInclude Include="engine\PlatformerMotor.h" />
+    <ClInclude Include="engine\ParallaxBackground.h" />
+    <ClInclude Include="engine\TilemapCollider.h" />
     <ClInclude Include="engine\RigidBody2D.h" />
     <ClInclude Include="engine\Scene.h" />
     <ClInclude Include="engine\SpriteAnimator.h" />

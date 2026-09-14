@@ -19,6 +19,12 @@ public:
     Transform* transform = nullptr;
     bool alive = true; // false = marcado para destruir; la Scene lo barre al final del frame
 
+    // Capa de dibujo: MENOR se dibuja antes (queda al fondo). A igualdad, manda el
+    // orden de creacion. Va en el GameObject y no en el SpriteRenderer porque la Scene
+    // dibuja OBJETOS enteros. Convenio de los ejemplos: fondo -100, tilemap -10,
+    // objetos del mundo 0, jugador 10, HUD 100.
+    int sortingOrder = 0;
+
     explicit GameObject(std::string n = "GameObject") : name(std::move(n)) {
         transform = addComponent<Transform>();
     }

@@ -14,6 +14,7 @@
 #include "../engine/Input.h"
 #include "../engine/SpriteRenderer.h"
 #include "../engine/TilemapRenderer.h"
+#include "../engine/TilemapCollider.h"
 #include "../engine/TiledObjectLayer.h"
 #include "../engine/RigidBody2D.h"
 #include "../engine/BoxCollider.h"
@@ -343,6 +344,8 @@ void buildShooter(Scene& scene) {
     world->transform->scaleX = world->transform->scaleY = WORLD_SCALE;
     auto map = world->addComponent<TilemapRenderer>(); // modo archivo: el tileset lo da el mapa
 
+    // El TilemapRenderer solo dibuja; el TilemapCollider da la colision de tiles.
+    world->addComponent<TilemapCollider>();
     if (!map->loadFromTiledJson("assets/maps/shmup_level1.json"))
         SDL_Log("buildShooter: no se pudo cargar assets/maps/shmup_level1.json");
 

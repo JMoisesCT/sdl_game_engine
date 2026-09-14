@@ -12,6 +12,7 @@
 #include "../engine/SpriteRenderer.h"
 #include "../engine/SpriteAnimator.h"
 #include "../engine/TilemapRenderer.h"
+#include "../engine/TilemapCollider.h"
 #include "../engine/RigidBody2D.h"
 #include "../engine/BoxCollider.h"
 #include "../engine/Camera.h"
@@ -73,6 +74,9 @@ void buildTopDown(Scene& scene) {
     world->transform->scaleX = world->transform->scaleY = 3.0f; // tile 16 -> 48 px
     auto map = world->addComponent<TilemapRenderer>(); // modo archivo: el tileset lo da el mapa
 
+    // El TilemapRenderer solo dibuja: el TilemapCollider es lo que hace que los
+    // tiles marcados como solidos frenen al personaje.
+    world->addComponent<TilemapCollider>();
     if (!map->loadFromTiledJson("assets/maps/topdown_level1.json"))
         SDL_Log("buildTopDown: no se pudo cargar assets/maps/topdown_level1.json");
 

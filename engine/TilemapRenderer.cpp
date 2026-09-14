@@ -3,7 +3,6 @@
 #include "Transform.h"
 #include "Scene.h"
 #include "Camera.h"
-#include "BoxCollider.h"
 
 #include <SDL3/SDL.h>
 #include <nlohmann/json.hpp> // solo aqui: el header del componente queda sin dependencias
@@ -160,13 +159,49 @@ bool TilemapRenderer::loadFromFile(const std::string& filePath) {
     return true;
 }
 
-void TilemapRenderer::update(float /*dt*/) {
-    // Build perezoso: el alumno llama setMap/setSolid DESPUES de addComponent, asi
-    // que en awake el mapa todavia esta vacio. Generamos los colliders la primera
-    // vez que corre el update, cuando el mapa ya esta definido.
-    if (built) return;
-    buildColliders();
-    built = true;
+// --- Consultas de mundo <-> celda -------------------------------------------------
+// Son la base de la colision: el TilemapCollider y la fase de fisica preguntan al mapa
+// en vez de instanciar un collider por celda.
+
+float TilemapRenderer::getTileWorldWidth()  const { return tileW * gameObject->transform->scaleX; }
+float TilemapRenderer::getTileWorldHeight() const { return tileH * gameObject->transform->scaleY; }
+float TilemapRenderer::getOriginX() const { return gameObject->transform->x; }
+float TilemapRenderer::getOriginY() const { return gameObject->transform->y; }
+
+void TilemapRenderer::worldToCell(float worldX, float worldY, int& col, int& row) const {
+    float cw = getTileWorldWidth(), ch = getTileWorldHeight();
+    if (cw <= 0.0f || ch <= 0.0f) { col = row = -1; return; }
+    // floor y no truncado: a la izquierda del origen los indices deben salir negativos.
+    col = (int)std::floor((worldX - getOriginX()) / cw);
+    row = (int)std::floor((worldY - getOriginY()) / ch);
+}
+
+void TilemapRenderer::cellToWorld(int col, int row, float& worldX, float& worldY) const {
+    float cw = getTileWorldWidth(), ch = getTileWorldHeight();
+    worldX = getOriginX() + col * cw + cw * 0.5f; // centro de la celda
+    worldY = getOriginY() + row * ch + ch * 0.5f;
+}
+
+bool TilemapRenderer::isValidCell(int col, int row) const {
+    return col >= 0 && row >= 0 && col < mapWidth && row < mapHeight;
+}
+
+int TilemapRenderer::getTileAt(int col, int row) const {
+    if (!isValidCell(col, row)) return -1;
+    return tiles[(size_t)row * mapWidth + col];
+}
+
+bool TilemapRenderer::isSolidCell(int col, int row) const {
+    // Fuera del mapa NO es solido: el personaje puede salirse por los lados o caer por
+    // abajo. Si un juego quiere paredes invisibles en el borde, las pone el juego.
+    int idx = getTileAt(col, row);
+    return idx >= 0 && isSolid(idx);
+}
+
+bool TilemapRenderer::isSolidAt(float worldX, float worldY) const {
+    int col, row;
+    worldToCell(worldX, worldY, col, row);
+    return isSolidCell(col, row);
 }
 
 // Carga un mapa exportado desde Tiled en formato JSON. SUPUESTOS DEL EXPORT:
@@ -299,30 +334,6 @@ float TilemapRenderer::getWorldWidth() const {
 
 float TilemapRenderer::getWorldHeight() const {
     return mapHeight * tileH * gameObject->transform->scaleY;
-}
-
-void TilemapRenderer::buildColliders() {
-    Transform* t = gameObject->transform;
-    float worldTileW = tileW * t->scaleX; // tamano de la celda en el mundo
-    float worldTileH = tileH * t->scaleY;
-
-    for (int row = 0; row < mapHeight; ++row) {
-        for (int col = 0; col < mapWidth; ++col) {
-            int idx = tiles[row * mapWidth + col];
-            if (idx < 0) continue;        // vacia
-            if (!isSolid(idx)) continue;  // no marcada como solida
-
-            // Un GameObject estatico (sin RigidBody) por celda solida, con el
-            // BoxCollider centrado en el centro de la celda (el collider se ancla
-            // al CENTRO del Transform).
-            GameObject* tileObj = gameObject->scene->createGameObject("TilemapCollider");
-            tileObj->transform->x = t->x + col * worldTileW + worldTileW * 0.5f;
-            tileObj->transform->y = t->y + row * worldTileH + worldTileH * 0.5f;
-            auto bc = tileObj->addComponent<BoxCollider>();
-            bc->width = worldTileW;
-            bc->height = worldTileH;
-        }
-    }
 }
 
 void TilemapRenderer::render() {

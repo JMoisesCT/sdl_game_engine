@@ -17,10 +17,13 @@ struct SDL_Texture; // declaracion adelantada: SDL solo aparece en el .cpp
 // izquierda de la celda (0,0). El tamano de cada celda EN EL MUNDO se obtiene
 // escalando con el Transform: worldTileW = tileW * scaleX, worldTileH = tileH * scaleY.
 //
-// COLISION: por cada celda marcada como solida (setSolid) se crea, de forma
-// perezosa en el primer update, un GameObject aparte con un BoxCollider estatico
-// centrado en esa celda. (No se pueden poner varios BoxCollider en un mismo
-// GameObject, por eso van en objetos separados.)
+// COLISION: este componente NO colisiona, solo dibuja y responde consultas. Para que
+// las celdas marcadas con setSolid frenen a los cuerpos hay que agregar ademas un
+// TilemapCollider en el mismo objeto (igual que en Unity: Tilemap + TilemapCollider2D).
+// Antes se creaba un GameObject con un BoxCollider POR CELDA solida; se dejo de hacer
+// porque con un nivel de verdad son cientos de colliders en una fase O(n^2), y porque
+// resolver contra cada tile por separado engancha al personaje en las costuras entre
+// tiles vecinos. Ahora la fisica pregunta al mapa (isSolidAt) en vez de instanciar.
 
 class TilemapRenderer : public Component {
 public:
@@ -63,13 +66,30 @@ public:
     float getWorldWidth()  const;
     float getWorldHeight() const;
 
+    // --- Mundo <-> celda ---------------------------------------------------------
+    // Tamano de UNA celda en el mundo (el tile de la imagen por la escala del objeto).
+    float getTileWorldWidth()  const;
+    float getTileWorldHeight() const;
+    // Origen del mapa en el mundo = esquina superior izquierda de la celda (0,0).
+    float getOriginX() const;
+    float getOriginY() const;
+
+    // Punto del mundo -> indices de celda. Puede devolver indices FUERA del mapa
+    // (negativos o >= tamano): comprobarlo con isValidCell si hace falta.
+    void worldToCell(float worldX, float worldY, int& col, int& row) const;
+    // Celda -> CENTRO de esa celda en el mundo.
+    void cellToWorld(int col, int row, float& worldX, float& worldY) const;
+
+    bool isValidCell(int col, int row) const;
+    int  getTileAt(int col, int row) const;    // indice de tile; -1 si vacia o fuera
+    bool isSolidCell(int col, int row) const;  // fuera del mapa = false (no frena)
+    bool isSolidAt(float worldX, float worldY) const; // lo mismo, en coords de mundo
+
     void awake() override;   // carga la textura del tileset
-    void update(float dt) override; // build perezoso de los colliders la primera vez
     void render() override;  // dibuja solo las celdas visibles (culling)
 
 private:
     bool isSolid(int tileIndex) const;
-    void buildColliders();
 
     std::string path;
     SDL_Texture* texture = nullptr; // prestada por el AssetManager (no somos dueno)
@@ -81,5 +101,4 @@ private:
     int mapWidth = 0, mapHeight = 0;
 
     std::vector<int> solids;        // indices de tile marcados como solidos
-    bool built = false;             // ya se generaron los colliders?
 };

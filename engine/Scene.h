@@ -9,6 +9,7 @@
 struct SDL_Renderer;
 class Camera;
 class BoxCollider;
+class TilemapCollider;
 
 class Scene {
 public:
@@ -45,7 +46,7 @@ public:
         removeDeadObjects();
     }
 
-    void render() { for (auto& o : objects) o->render(); }
+    void render();  // Scene.cpp: dibuja por capas (GameObject::sortingOrder)
 
     SDL_Renderer* getRenderer() const  { return renderer; }
     AssetManager& getAssets()          { return assets; }
@@ -56,13 +57,21 @@ public:
     void registerCollider(BoxCollider* c) { colliders.push_back(c); }
     const std::vector<BoxCollider*>& getColliders() const { return colliders; }
 
+    // Los tilemaps solidos se registran aparte: no son un collider mas en el bucle de
+    // pares, son geometria del nivel a la que la fisica le PREGUNTA por celdas.
+    void registerTilemapCollider(TilemapCollider* t) { tilemaps.push_back(t); }
+
 private:
-    void resolveCollisions();  // Scene.cpp
-    void removeDeadObjects();  // Scene.cpp
+    void resolveCollisions();         // Scene.cpp: orquesta las dos fases
+    void resolveTilemapCollisions();  // cuerpos contra la geometria del nivel
+    void resolvePairCollisions();     // collider contra collider (AABB, O(n^2))
+    void removeDeadObjects();         // Scene.cpp
 
     SDL_Renderer* renderer = nullptr;
     AssetManager  assets;
     Camera*       activeCamera = nullptr;
     std::vector<std::unique_ptr<GameObject>> objects;
     std::vector<BoxCollider*> colliders;
+    std::vector<TilemapCollider*> tilemaps;
+    std::vector<GameObject*> drawList; // reutilizado cada frame para ordenar el dibujo
 };
