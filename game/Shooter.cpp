@@ -41,6 +41,11 @@ static const int   TILE_CELL   = 16; // tamano de cada celda del tileset
 
 // Fuente del HUD. Ruta manual, misma convencion que las texturas. Tamanio potencia
 // de 2 para que la fuente pixel se vea nitida (sin reescalado feo).
+// Tags: clasifican objetos para que los filtros no dependan del nombre de una
+// instancia concreta.
+static const char* TAG_ENEMY  = "Enemy";
+static const char* TAG_BULLET = "Bullet";
+
 static const char* HUD_FONT    = "assets/ninja_adventure/Ui/Font/NormalFont.ttf";
 static const int   HUD_SIZE    = 32;
 
@@ -111,17 +116,20 @@ private:
     int lastShown = -1; // distinto de score al inicio: fuerza el primer refresco
 };
 
-// Destruye su objeto (y al otro) cuando choca con algo de cierto nombre. Si se le da
+// Destruye su objeto (y al otro) cuando choca con algo de cierto TAG. Si se le da
 // un HudScore, suma 'points' al puntaje en ese choque (lo usamos solo en el enemigo,
 // para contar una vez por nave derribada por una bala).
+//
+// Antes filtraba por 'name', que identifica una instancia; el tag clasifica. Con tags,
+// dos tipos de bala distintos siguen contando como "bala" sin tocar este componente.
 class DestroyOnHit : public Component {
 public:
-    std::string targetName;
+    std::string targetTag;
     HudScore*   scoreOnKill = nullptr; // opcional: a quien sumarle puntos
     int         points      = 100;
 
     void onCollision(GameObject* other) override {
-        if (other->name == targetName) {
+        if (other->compareTag(targetTag)) {
             if (scoreOnKill) scoreOnKill->bump(points);
             gameObject->scene->destroy(gameObject);
             gameObject->scene->destroy(other);
@@ -137,6 +145,7 @@ static GameObject* spawnEnemy(Scene& scene, float wx, float wy,
                               int shipCol, int shipRow, float speed,
                               HudScore* hud) {
     GameObject* e = scene.createGameObject("Enemigo");
+    e->tag = TAG_ENEMY;
     e->transform->x = wx;
     e->transform->y = wy;
     e->transform->scaleX = e->transform->scaleY = 2.5f;
@@ -150,7 +159,7 @@ static GameObject* spawnEnemy(Scene& scene, float wx, float wy,
     c->isTrigger = true;
     // Al recibir una bala se destruye y suma puntos al HUD (una vez por nave).
     auto hit = e->addComponent<DestroyOnHit>();
-    hit->targetName  = "Bala";
+    hit->targetTag   = TAG_BULLET;
     hit->scoreOnKill = hud;
     // Red de seguridad: si escapa por abajo sin recibir bala, se limpia solo.
     e->addComponent<Lifetime>()->seconds = 12.0f;
@@ -231,6 +240,7 @@ private:
     void shoot() {
         Scene* scene = gameObject->scene;
         GameObject* bala = scene->createGameObject("Bala");
+        bala->tag = TAG_BULLET;
         bala->transform->x = gameObject->transform->x;
         bala->transform->y = gameObject->transform->y - 40.0f;
         bala->transform->scaleX = bala->transform->scaleY = 2.5f; // 16px -> 40px en mundo
@@ -251,7 +261,7 @@ private:
         // Se autodestruye al salir del viewport: como sube mas rapido que la camara,
         // el Lifetime alcanza para limpiarla tras cruzar el borde superior.
         bala->addComponent<Lifetime>()->seconds = 2.0f;
-        bala->addComponent<DestroyOnHit>()->targetName = "Enemigo";
+        bala->addComponent<DestroyOnHit>()->targetTag = TAG_ENEMY;
     }
 };
 

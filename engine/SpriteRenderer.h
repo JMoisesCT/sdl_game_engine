@@ -13,6 +13,10 @@ public:
     SpriteRenderer() = default;               // sin textura inicial: la asigna el animator
     explicit SpriteRenderer(std::string imagePath);
 
+    // false = no se dibuja (el objeto sigue vivo y actualizandose). Lo usa, por
+    // ejemplo, el parpadeo de invulnerabilidad de Health.
+    bool visible = true;
+
     bool flipX = false; // espejo horizontal (mirar a izquierda/derecha)
     bool flipY = false; // espejo vertical
 

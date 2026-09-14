@@ -22,6 +22,12 @@
     <ClCompile Include="engine\AssetManager.cpp" />
     <ClCompile Include="engine\BoxCollider.cpp" />
     <ClCompile Include="engine\Camera.cpp" />
+    <ClCompile Include="engine\Checkpoint.cpp" />
+    <ClCompile Include="engine\Collectible.cpp" />
+    <ClCompile Include="engine\Hazard.cpp" />
+    <ClCompile Include="engine\Health.cpp" />
+    <ClCompile Include="engine\KillZone.cpp" />
+    <ClCompile Include="engine\Respawn.cpp" />
     <ClCompile Include="engine\Debugger.cpp" />
     <ClCompile Include="engine\FollowCamera.cpp" />
     <ClCompile Include="engine\Input.cpp" />
@@ -44,6 +50,12 @@
     <ClInclude Include="engine\AssetManager.h" />
     <ClInclude Include="engine\BoxCollider.h" />
     <ClInclude Include="engine\Camera.h" />
+    <ClInclude Include="engine\Checkpoint.h" />
+    <ClInclude Include="engine\Collectible.h" />
+    <ClInclude Include="engine\Hazard.h" />
+    <ClInclude Include="engine\Health.h" />
+    <ClInclude Include="engine\KillZone.h" />
+    <ClInclude Include="engine\Respawn.h" />
     <ClInclude Include="engine\Component.h" />
     <ClInclude Include="engine\Debugger.h" />
     <ClInclude Include="engine\FollowCamera.h" />

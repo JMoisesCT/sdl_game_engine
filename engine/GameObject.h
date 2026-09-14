@@ -15,6 +15,15 @@ class Scene;
 class GameObject {
 public:
     std::string name;
+
+    // CLASIFICACION del objeto: "Player", "Enemy", "Hazard", "Pickup"... El 'name'
+    // identifica UNA instancia (y suele ser unico); el 'tag' dice de QUE TIPO es, y lo
+    // comparten muchos objetos. Los componentes genericos del motor filtran por tag
+    // (Hazard, Collectible, KillZone...), nunca por name: filtrar por name obliga a
+    // que el motor conozca los nombres de un juego concreto y se rompe en cuanto hay
+    // dos jugadores o el objeto se llama distinto.
+    std::string tag;
+
     Scene* scene = nullptr;
     Transform* transform = nullptr;
     bool alive = true; // false = marcado para destruir; la Scene lo barre al final del frame
@@ -57,6 +66,10 @@ public:
         ptr->awake();
         return ptr;
     }
+
+    // true si el objeto lleva ese tag. Un tag vacio no coincide con nada, para que un
+    // objeto al que se le olvido poner tag no active por accidente todos los filtros.
+    bool compareTag(const std::string& t) const { return !t.empty() && tag == t; }
 
     template <typename T>
     T* getComponent() {

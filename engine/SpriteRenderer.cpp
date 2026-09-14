@@ -25,6 +25,7 @@ void SpriteRenderer::setTexture(SDL_Texture* tex) {
 }
 
 void SpriteRenderer::render() {
+    if (!visible) return;
     if (!texture) return;
 
     SDL_Renderer* renderer = gameObject->scene->getRenderer();
