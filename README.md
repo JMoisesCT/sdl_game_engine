@@ -193,8 +193,10 @@ Controles dentro de cada ejemplo:
 ## Cómo editar un mapa con Tiled (guía para alumnos)
 
 El motor lee mapas exportados desde **[Tiled](https://www.mapeditor.org/)** en formato
-**JSON**. El ejemplo de plataformas carga `assets/maps/platformer_level1.json` (ver
-`game/Platformer.cpp`).
+**JSON**. En Tiled va **el terreno** (capas de tiles y qué tiles son sólidos); los objetos del
+juego van aparte (ver el paso 6). El ejemplo de plataformas carga
+`assets/maps/platformer_level1.level.json`, que a su vez indica qué mapa de Tiled usar
+(`platformer_level1.json`). Ver `game/Platformer.cpp`.
 
 ### 1. Instala Tiled
 
@@ -212,8 +214,8 @@ Descárgalo gratis desde [mapeditor.org](https://www.mapeditor.org/).
 
 ### 3. Marca los tiles sólidos
 
-La física "viaja" dentro del mapa: el motor crea un collider por cada tile marcado como
-sólido. Para marcar un tile:
+La física "viaja" dentro del mapa: el motor no crea un collider por tile, sino que le
+**pregunta** al mapa qué celdas son sólidas (lo hace el `TilemapCollider`). Para marcar un tile:
 
 1. Selecciona el tileset y luego el tile en el panel de tilesets.
 2. En **Propiedades personalizadas** (Custom Properties), agrega una propiedad **booleana**
@@ -223,16 +225,42 @@ sólido. Para marcar un tile:
 El parser busca en el tileset embebido cada tile con la propiedad `solid == true` y lo
 registra como sólido.
 
-### 4. Exporta a JSON en la ruta que el juego espera
+### 4. Usa varias capas si las necesitas (fondo, suelo, decoración)
 
-Exporta el mapa como **JSON** sobre la ruta que carga el código:
+El motor lee **todas** las capas de tiles, en el mismo orden que Tiled (la de abajo en el
+panel de capas se dibuja al fondo). Respeta la visibilidad y la opacidad de cada capa, y los
+grupos de capas.
+
+- Por defecto, **toda capa colisiona** con sus tiles marcados como `solid`.
+- Para una capa **puramente decorativa** (que nunca frene, aunque use tiles sólidos),
+  selecciona la capa y agrégale una propiedad personalizada **booleana** llamada
+  **`collision`** con valor **`false`**.
+- Una capa **oculta** sigue colisionando: sirve como capa de colisión invisible.
+
+### 5. Exporta a JSON en la ruta que el juego espera
+
+Exporta el mapa como **JSON** sobre la ruta que indica el campo `"map"` del archivo de nivel:
 
 ```
 assets/maps/platformer_level1.json
 ```
 
-(Es la ruta de `buildPlatformer` en `game/Platformer.cpp`. Si usas otro nombre, cambia esa
-ruta en el código.)
+(Si usas otro nombre, cambia el campo `"map"` de `platformer_level1.level.json`.)
+
+### 6. Los objetos del juego van en el archivo de nivel, no en Tiled
+
+En el platformer, el jugador, las frutas, las trampas, el checkpoint y la meta viven en
+`assets/maps/platformer_level1.level.json`. Cada archivo tiene **un solo programa que lo
+escribe** (Tiled el mapa; el futuro editor del motor el `.level.json`), así ninguno pisa los
+cambios del otro. Por ahora se edita a mano:
+
+```json
+{ "id": 2, "type": "Fruit", "x": 200, "y": 242, "properties": { "fruit": "Apple" } }
+```
+
+`x`, `y` son el **centro** del objeto en píxeles del mapa (en un objeto punto, los mismos
+números que muestra Tiled). La
+capa `Objetos` que aún tiene el mapa de Tiled **ya no se lee** en el platformer.
 
 ### ⚠️ Advertencias importantes
 
@@ -243,10 +271,10 @@ ruta en el código.)
   números.
 - **No uses el volteo/rotación de tiles** de Tiled: el parser aún **ignora** esos bits de
   flip (enmascara los 3 bits altos del GID).
-- Además de la **capa de tiles**, se leen las **capas de objetos** (*objectgroup*):
-  `TiledObjectLayer` las entrega como datos planos (`TiledObject`) y el juego decide qué crear
-  según el `type` (lo usa el shooter para el jugador, enemigos, power-ups y zonas). El motor no
-  interpreta el `type`: esa semántica vive en `game/`.
+- El **shooter** todavía lee sus objetos de la **capa de objetos** (*objectgroup*) de su mapa
+  de Tiled: `TiledObjectLayer` las entrega como datos planos (`TiledObject`) y el juego decide
+  qué crear según el `type` (jugador, enemigos, power-ups y zonas). El motor no interpreta el
+  `type`: esa semántica vive en `game/`, venga el objeto de Tiled o del `.level.json`.
 
 ---
 

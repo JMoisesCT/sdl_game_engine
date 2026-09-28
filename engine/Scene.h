@@ -48,6 +48,12 @@ public:
 
     void render();  // Scene.cpp: dibuja por capas (GameObject::sortingOrder)
 
+    // Todos los objetos de la escena, en orden de creacion. Solo lectura: para crear o
+    // destruir se usan createGameObject / destroy. Lo usan herramientas que recorren la
+    // escena entera (el editor, el Debugger). No guardar estos punteros de un frame a
+    // otro: un objeto destruido desaparece al final del frame.
+    const std::vector<std::unique_ptr<GameObject>>& getObjects() const { return objects; }
+
     SDL_Renderer* getRenderer() const  { return renderer; }
     AssetManager& getAssets()          { return assets; }
 

@@ -24,3 +24,18 @@ void Camera::worldToScreen(float worldX, float worldY,
     screenX = (worldX - cam->x) * zoom + w * 0.5f;
     screenY = (worldY - cam->y) * zoom + h * 0.5f;
 }
+
+void Camera::screenToWorld(float screenX, float screenY,
+                           float& worldX, float& worldY) const {
+    SDL_Renderer* renderer = gameObject->scene->getRenderer();
+
+    int w = 0, h = 0;
+    SDL_GetCurrentRenderOutputSize(renderer, &w, &h);
+
+    Transform* cam = gameObject->transform;
+    float z = (zoom > 0.0f) ? zoom : 1.0f; // un zoom invalido no debe dividir por cero
+
+    // Despejando la formula de worldToScreen.
+    worldX = (screenX - w * 0.5f) / z + cam->x;
+    worldY = (screenY - h * 0.5f) / z + cam->y;
+}

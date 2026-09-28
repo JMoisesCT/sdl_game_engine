@@ -1,0 +1,55 @@
+#pragma once
+#include <string>
+#include <vector>
+#include <map>
+
+#include "TiledObjectLayer.h" // TiledObject: los objetos del nivel son los mismos datos planos
+
+class Camera;
+class FollowCamera;
+
+// Un NIVEL son dos archivos, y cada uno tiene UN SOLO programa que lo escribe:
+//
+//   nivel.json        -> el MAPA. Lo escribe solo Tiled: capas de tiles, tileset y que
+//                        tiles son solidos. El motor solo lo lee (TilemapRenderer).
+//   nivel.level.json  -> lo que va ENCIMA del mapa: objetos (jugador, items, trampas...)
+//                        y ajustes del nivel (camara). Lo escribira solo el editor del
+//                        motor; mientras tanto se puede editar a mano.
+//
+// Por que separados: si los dos programas escribieran el mismo archivo, guardar desde
+// uno pisaria lo que se cambio en el otro con la copia vieja que tenia en memoria
+// (pintas una plataforma en Tiled, mueves una fruta en el editor, guardas... y la
+// plataforma desaparece). Con un escritor por archivo ese conflicto no puede existir.
+//
+// GENERICO: igual que con la capa de objetos de Tiled, el motor NO sabe que significa
+// cada "type" de objeto. Solo entrega los datos; la fabrica que decide que crear vive
+// en game/.
+struct LevelData {
+    // Ruta del mapa de Tiled YA RESUELTA (el archivo la guarda relativa a su carpeta,
+    // igual que Tiled guarda la imagen del tileset relativa al mapa).
+    std::string mapPath;
+
+    // Siguiente id libre para un objeto nuevo (lo usara el editor al crear objetos).
+    int nextObjectId = 1;
+
+    // Ajustes de camara que trae el archivo, por nombre ("zoom", "deadZoneWidth"...).
+    // Solo estan los que el archivo define: ver applyCameraSettings.
+    std::map<std::string, double> camera;
+
+    // Objetos del nivel. Mismo struct que la capa de objetos de Tiled, asi la fabrica
+    // del juego no cambia: cx,cy es el CENTRO en pixeles del mapa (sin escalar), y las
+    // propiedades van separadas en stringProps / numberProps.
+    std::vector<TiledObject> objects;
+};
+
+// Lee un archivo .level.json. Devuelve false (y hace SDL_Log) si no se puede abrir o no
+// es valido; en ese caso 'out' queda sin tocar. Ver el .cpp para el formato.
+bool loadLevel(const std::string& path, LevelData& out);
+
+// Aplica a la camara los ajustes que traiga el nivel, SOLO los que esten en el archivo:
+// lo que falte conserva el valor que ya tenia el componente. Asi el juego pone sus
+// valores por defecto y el nivel los sobreescribe donde quiera.
+//   Camera:       zoom
+//   FollowCamera: deadZoneWidth, deadZoneHeight, smoothSpeed, lookAhead, lookAheadSpeed
+// Cualquiera de los dos punteros puede ser nullptr.
+void applyCameraSettings(const LevelData& level, Camera* cam, FollowCamera* follow);

@@ -14,5 +14,9 @@ public:
     // Convierte un punto del mundo a su posicion en pantalla (aplica posicion + zoom).
     void worldToScreen(float worldX, float worldY, float& screenX, float& screenY) const;
 
+    // La inversa: un punto de la pantalla (p. ej. el raton) -> punto del mundo que se ve
+    // ahi. Es lo que permite hacer clic sobre un objeto del mundo.
+    void screenToWorld(float screenX, float screenY, float& worldX, float& worldY) const;
+
     float getZoom() const { return zoom; }
 };

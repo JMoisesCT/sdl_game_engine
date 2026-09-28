@@ -46,39 +46,4 @@
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
 </data>
  </layer>
- <objectgroup id="2" name="Objetos">
-  <object id="1" type="PlayerStart" x="176" y="232">
-   <point/>
-  </object>
-  <object id="2" type="Fruit" x="200" y="242">
-   <properties>
-    <property name="fruit" value="Apple"/>
-   </properties>
-   <point/>
-  </object>
-  <object id="3" type="Spikes" x="224" y="248">
-   <point/>
-  </object>
-  <object id="4" type="Fruit" x="248" y="242">
-   <properties>
-    <property name="fruit" value="Bananas"/>
-   </properties>
-   <point/>
-  </object>
-  <object id="5" type="Checkpoint" x="272" y="240">
-   <point/>
-  </object>
-  <object id="6" type="Saw" x="240" y="208">
-   <point/>
-  </object>
-  <object id="7" type="Fruit" x="296" y="242">
-   <properties>
-    <property name="fruit" value="Cherries"/>
-   </properties>
-   <point/>
-  </object>
-  <object id="8" type="LevelEnd" x="316" y="240">
-   <point/>
-  </object>
- </objectgroup>
 </map>

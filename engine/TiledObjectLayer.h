@@ -14,6 +14,7 @@
 // mapa de Tiled (SIN escalar); el juego las lleva al mundo con el origen y la
 // escala que uso su tilemap.
 struct TiledObject {
+    int id = 0;         // id unico del objeto en su mapa/nivel (0 = sin id)
     std::string name;   // "name" del objeto en Tiled (puede ir vacio)
     std::string type;   // "type"/"class" del objeto en Tiled (puede ir vacio)
     float cx = 0.0f;    // centro X en pixeles del mapa de Tiled

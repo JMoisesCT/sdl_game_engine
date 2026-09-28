@@ -71,6 +71,7 @@ std::vector<TiledObject> loadTiledObjectLayers(const std::string& filePath) {
 
         for (const auto& obj : layer["objects"]) {
             TiledObject t;
+            t.id   = obj.value("id", 0); // Tiled numera cada objeto del mapa (unico)
             t.name = obj.value("name", std::string());
             // Tiled 1.9+ guarda la clase en "class"; versiones previas en "type".
             // Aceptamos ambos para no depender de la version del editor.

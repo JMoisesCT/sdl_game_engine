@@ -24,6 +24,13 @@ struct SDL_Texture; // declaracion adelantada: SDL solo aparece en el .cpp
 // porque con un nivel de verdad son cientos de colliders en una fase O(n^2), y porque
 // resolver contra cada tile por separado engancha al personaje en las costuras entre
 // tiles vecinos. Ahora la fisica pregunta al mapa (isSolidAt) en vez de instanciar.
+//
+// CAPAS: el mapa puede tener VARIAS capas de tiles (fondo, suelo, decoracion...), todas
+// del mismo tamanio y con el mismo tileset. Se dibujan en orden: la primera queda al
+// fondo y cada una tapa a la anterior, igual que en Tiled. Una celda es solida si ALGUNA
+// capa con colision tiene ahi un tile solido; una capa con collision = false es pura
+// decoracion y nunca frena, aunque use tiles marcados como solidos. setMap y
+// loadFromFile crean una sola capa; loadFromTiledJson lee todas las del mapa.
 
 class TilemapRenderer : public Component {
 public:
@@ -40,7 +47,7 @@ public:
     // para el formato del archivo.
     bool loadFromFile(const std::string& path);
 
-    // Carga un mapa exportado desde Tiled en formato JSON (capa de tiles + tileset
+    // Carga un mapa exportado desde Tiled en formato JSON (capas de tiles + tileset
     // embebido). Deja el componente en el mismo estado que los otros cargadores.
     // Devuelve false (y hace SDL_Log) si falla, sin dejarlo a medio configurar.
     // Ver el .cpp para los supuestos del export y la conversion de indices.
@@ -58,6 +65,7 @@ public:
     int getTileWidth()  const { return tileW; }     // ancho de un tile EN LA IMAGEN (px)
     int getTileHeight() const { return tileH; }     // alto  de un tile EN LA IMAGEN (px)
     int getTilesetColumns() const { return tilesetColumns; } // columnas del tileset
+    int getLayerCount() const { return (int)layers.size(); } // capas de tiles cargadas
 
     // Tamano del mapa COMPLETO en pixeles de MUNDO: las celdas por el tamano de tile
     // y por la escala del Transform del objeto (worldW = mapWidth * tileW * scaleX,
@@ -81,8 +89,10 @@ public:
     void cellToWorld(int col, int row, float& worldX, float& worldY) const;
 
     bool isValidCell(int col, int row) const;
-    int  getTileAt(int col, int row) const;    // indice de tile; -1 si vacia o fuera
-    bool isSolidCell(int col, int row) const;  // fuera del mapa = false (no frena)
+    // Indice de tile de esa celda en la capa dada (0 = la del fondo); -1 si esta vacia,
+    // si la celda cae fuera del mapa o si la capa no existe.
+    int  getTileAt(int col, int row, int layer = 0) const;
+    bool isSolidCell(int col, int row) const;  // alguna capa con colision; fuera = false
     bool isSolidAt(float worldX, float worldY) const; // lo mismo, en coords de mundo
 
     void awake() override;   // carga la textura del tileset
@@ -97,7 +107,15 @@ private:
     int tileW = 0, tileH = 0;       // tamano del tile EN LA IMAGEN (para recortar)
     int tilesetColumns = 0;         // columnas del tileset (para mapear indice -> celda)
 
-    std::vector<int> tiles;         // mapa row-major (-1 vacio)
+    // Una capa de tiles. Todas comparten el tamanio del mapa y el tileset.
+    struct Layer {
+        std::string name;               // nombre en Tiled (vacio en los otros origenes)
+        std::vector<int> tiles;         // row-major (-1 vacio)
+        bool  visible   = true;         // false = no se dibuja (pero puede colisionar)
+        float opacity   = 1.0f;         // 0..1, se aplica al dibujar
+        bool  collision = true;         // false = decorativa: nunca frena
+    };
+    std::vector<Layer> layers;      // en orden de dibujo: la primera al fondo
     int mapWidth = 0, mapHeight = 0;
 
     std::vector<int> solids;        // indices de tile marcados como solidos

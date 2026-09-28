@@ -17,7 +17,7 @@
 #include "../engine/PlatformerMotor.h"
 #include "../engine/TilemapRenderer.h"
 #include "../engine/TilemapCollider.h"
-#include "../engine/TiledObjectLayer.h"
+#include "../engine/LevelData.h"
 #include "../engine/ParallaxBackground.h"
 #include "../engine/TextRenderer.h"
 #include "../engine/Health.h"
@@ -30,7 +30,9 @@
 #include "../engine/FollowCamera.h"
 
 // --- Contenido del nivel (rutas del lado del JUEGO, no del motor) ---------------
-static const char* LEVEL_JSON = "assets/maps/platformer_level1.json";
+// El nivel son DOS archivos: el mapa de Tiled (terreno) y el .level.json (objetos y
+// camara), que ademas dice que mapa usa. Por eso aqui solo se nombra el segundo.
+static const char* LEVEL_FILE = "assets/maps/platformer_level1.level.json";
 static const char* MASK_DUDE  = "assets/pixel_adventure/Main Characters/Mask Dude/";
 static const char* FRUITS_DIR = "assets/pixel_adventure/Items/Fruits/";
 static const char* END_DIR    = "assets/pixel_adventure/Items/Checkpoints/End/";
@@ -155,12 +157,12 @@ private:
 };
 
 // --- Utilidades del nivel -------------------------------------------------------
-// Tiled entrega coordenadas en pixeles DEL MAPA (tiles de 16 px). El mundo esta
-// escalado por el Transform del tilemap, asi que hay que multiplicar por esa escala y
-// sumarle el origen del mapa. Dividir el tamano de celda en el mundo entre el de la
-// imagen da exactamente esa escala, sin cablear el 4.
-static void tiledToWorld(const TilemapRenderer* map, float tx, float ty,
-                         float& wx, float& wy) {
+// Los objetos del nivel vienen en pixeles DEL MAPA (tiles de 16 px), como en Tiled. El
+// mundo esta escalado por el Transform del tilemap, asi que hay que multiplicar por esa
+// escala y sumarle el origen del mapa. Dividir el tamano de celda en el mundo entre el
+// de la imagen da exactamente esa escala, sin cablear el 4.
+static void mapToWorld(const TilemapRenderer* map, float tx, float ty,
+                       float& wx, float& wy) {
     float sx = map->getTileWorldWidth()  / (float)map->getTileWidth();
     float sy = map->getTileWorldHeight() / (float)map->getTileHeight();
     wx = map->getOriginX() + tx * sx;
@@ -384,6 +386,13 @@ static void createFallKillZone(Scene& scene, const TilemapRenderer* map) {
 }
 
 void buildPlatformer(Scene& scene) {
+    // --- Archivo del nivel ---------------------------------------------------------
+    // Trae que mapa usar, los objetos y los ajustes de camara. Si falla, el nivel sale
+    // vacio (sin mapa ni objetos) pero el juego no se cae: queda el log para saber por que.
+    LevelData level;
+    if (!loadLevel(LEVEL_FILE, level))
+        SDL_Log("buildPlatformer: no se pudo cargar %s", LEVEL_FILE);
+
     // --- Fondo con parallax ------------------------------------------------------
     // Se dibuja primero (sortingOrder mas bajo) y se mueve a un tercio de la camara,
     // asi el nivel parece tener profundidad. El PNG es tileable de 64x64.
@@ -403,10 +412,11 @@ void buildPlatformer(Scene& scene) {
     tilemap->transform->y = -262.0f;
     tilemap->transform->scaleX = tilemap->transform->scaleY = 4.0f; // 16px -> 64px por celda
     auto tm = tilemap->addComponent<TilemapRenderer>();
-    // Nivel exportado desde Tiled (JSON, capa de tiles + tileset embebido). Los tiles
-    // solidos se marcan en Tiled con una propiedad booleana "solid"=true en el tileset.
-    if (!tm->loadFromTiledJson(LEVEL_JSON))
-        SDL_Log("buildPlatformer: no se pudo cargar %s", LEVEL_JSON);
+    // Mapa de Tiled (JSON, capas de tiles + tileset embebido). Los tiles solidos se
+    // marcan en Tiled con una propiedad booleana "solid"=true en el tileset, y una capa
+    // puramente decorativa lleva la propiedad de capa "collision"=false.
+    if (!tm->loadFromTiledJson(level.mapPath))
+        SDL_Log("buildPlatformer: no se pudo cargar el mapa '%s'", level.mapPath.c_str());
     // El renderer solo DIBUJA; este componente es lo que hace que los tiles frenen.
     tilemap->addComponent<TilemapCollider>();
 
@@ -457,11 +467,12 @@ void buildPlatformer(Scene& scene) {
     hud->fruitLabel = fruitLabel;
     hud->banner     = banner;
 
-    // --- Contenido desde la capa de objetos de Tiled -----------------------------
+    // --- Contenido desde el archivo del nivel -------------------------------------
     // El motor NO sabe que significa cada "type": entrega los objetos como datos y la
-    // fabrica de aqui decide que construir. Es el mismo patron que usa el shooter.
-    // Asi el nivel se edita en Tiled, sin recompilar y sin numeros cableados aqui.
-    std::vector<TiledObject> objects = loadTiledObjectLayers(LEVEL_JSON);
+    // fabrica de aqui decide que construir. Es el mismo patron que usa el shooter con
+    // la capa de objetos de Tiled (y los mismos datos: TiledObject). Asi el nivel se
+    // edita sin recompilar y sin numeros cableados aqui.
+    const std::vector<TiledObject>& objects = level.objects;
 
     float spawnX = FALLBACK_SPAWN_X, spawnY = FALLBACK_SPAWN_Y;
     bool  haveSpawn = false;
@@ -471,13 +482,13 @@ void buildPlatformer(Scene& scene) {
     // mas (asi la camara ya lo tiene a quien seguir).
     for (const TiledObject& o : objects) {
         if (o.type == "PlayerStart") {
-            tiledToWorld(tm, o.cx, o.cy, spawnX, spawnY);
+            mapToWorld(tm, o.cx, o.cy, spawnX, spawnY);
             haveSpawn = true;
             break;
         }
     }
     if (!haveSpawn)
-        SDL_Log("buildPlatformer: el mapa no trae ningun objeto PlayerStart; "
+        SDL_Log("buildPlatformer: el nivel no trae ningun objeto PlayerStart; "
                 "se usa la posicion por defecto.");
 
     GameObject* player = createPlayer(scene, spawnX, spawnY);
@@ -486,10 +497,10 @@ void buildPlatformer(Scene& scene) {
     // Segunda pasada: el resto del contenido.
     for (const TiledObject& o : objects) {
         float wx, wy;
-        tiledToWorld(tm, o.cx, o.cy, wx, wy);
+        mapToWorld(tm, o.cx, o.cy, wx, wy);
 
         if (o.type == "Fruit") {
-            // Propiedad "fruit" del objeto en Tiled: Apple, Bananas, Cherries, Kiwi,
+            // Propiedad "fruit" del objeto: Apple, Bananas, Cherries, Kiwi,
             // Melon, Orange, Pineapple o Strawberry. Si falta, cae en Apple.
             createFruit(scene, wx, wy, o.getString("fruit", "Apple"), hud);
             ++fruitCount;
@@ -502,7 +513,7 @@ void buildPlatformer(Scene& scene) {
         } else if (o.type == "LevelEnd") {
             createLevelEnd(scene, wx, wy, hud);
         } else if (o.type != "PlayerStart" && !o.type.empty()) {
-            SDL_Log("buildPlatformer: objeto de Tiled con type '%s' sin fabrica; se ignora.",
+            SDL_Log("buildPlatformer: objeto con type '%s' sin fabrica; se ignora.",
                     o.type.c_str());
         }
     }
@@ -513,10 +524,13 @@ void buildPlatformer(Scene& scene) {
 
     // --- Camara ------------------------------------------------------------------
     GameObject* cam = scene.createGameObject("MainCamera");
-    cam->addComponent<Camera>();
+    auto camera = cam->addComponent<Camera>();
     auto f = cam->addComponent<FollowCamera>();
     f->setTarget(player);
+    // Valores POR DEFECTO del juego; el archivo del nivel puede cambiar cualquiera de
+    // ellos (seccion "camera"), y lo que no traiga se queda como esta aqui.
     f->deadZoneWidth = 200.0f; f->deadZoneHeight = 200.0f;
     f->lookAhead = 120.0f;             // adelanta la vista hacia donde corre
+    applyCameraSettings(level, camera, f);
     f->setBoundsFromTilemap(tm);       // y nunca se sale del nivel
 }

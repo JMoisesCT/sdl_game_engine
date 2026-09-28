@@ -11,11 +11,51 @@
 #include <fstream>
 #include <sstream>
 
+namespace {
+    // Una tilelayer del JSON de Tiled junto con lo que hereda de sus grupos padre.
+    struct TiledTileLayerRef {
+        const nlohmann::json* json;
+        bool  visible;
+        float opacity;
+    };
+
+    // Junta las tilelayer en orden de dibujo. El array "layers" de Tiled ya viene de
+    // abajo hacia arriba (la primera es la del fondo). Los grupos ("group") solo
+    // organizan: se aplanan, y su visibilidad y opacidad se heredan a sus capas.
+    void collectTileLayers(const nlohmann::json& list, bool visible, float opacity,
+                           std::vector<TiledTileLayerRef>& out) {
+        for (const auto& l : list) {
+            std::string type = l.value("type", std::string());
+            bool  v = visible && l.value("visible", true);
+            float o = opacity * (float)l.value("opacity", 1.0);
+            if (type == "tilelayer")
+                out.push_back({ &l, v, o });
+            else if (type == "group" && l.contains("layers") && l["layers"].is_array())
+                collectTileLayers(l["layers"], v, o, out);
+        }
+    }
+
+    // Propiedad booleana personalizada de una capa de Tiled; 'def' si no la tiene.
+    bool layerBoolProperty(const nlohmann::json& layer, const std::string& name, bool def) {
+        if (!layer.contains("properties") || !layer["properties"].is_array()) return def;
+        for (const auto& p : layer["properties"]) {
+            if (p.value("name", std::string()) == name &&
+                p.contains("value") && p["value"].is_boolean())
+                return p["value"].get<bool>();
+        }
+        return def;
+    }
+}
+
 TilemapRenderer::TilemapRenderer(std::string tilesetPath, int tileW, int tileH, int tilesetColumns)
     : path(std::move(tilesetPath)), tileW(tileW), tileH(tileH), tilesetColumns(tilesetColumns) {}
 
 void TilemapRenderer::setMap(const std::vector<int>& t, int w, int h) {
-    tiles = t;
+    // El mapa en codigo es de UNA capa: reemplaza las que hubiera.
+    Layer layer;
+    layer.tiles = t;
+    layers.clear();
+    layers.push_back(std::move(layer));
     mapWidth = w;
     mapHeight = h;
 }
@@ -186,16 +226,24 @@ bool TilemapRenderer::isValidCell(int col, int row) const {
     return col >= 0 && row >= 0 && col < mapWidth && row < mapHeight;
 }
 
-int TilemapRenderer::getTileAt(int col, int row) const {
-    if (!isValidCell(col, row)) return -1;
-    return tiles[(size_t)row * mapWidth + col];
+int TilemapRenderer::getTileAt(int col, int row, int layer) const {
+    if (!isValidCell(col, row) || layer < 0 || layer >= (int)layers.size()) return -1;
+    return layers[layer].tiles[(size_t)row * mapWidth + col];
 }
 
 bool TilemapRenderer::isSolidCell(int col, int row) const {
     // Fuera del mapa NO es solido: el personaje puede salirse por los lados o caer por
     // abajo. Si un juego quiere paredes invisibles en el borde, las pone el juego.
-    int idx = getTileAt(col, row);
-    return idx >= 0 && isSolid(idx);
+    if (!isValidCell(col, row)) return false;
+    size_t cell = (size_t)row * mapWidth + col;
+    for (const Layer& layer : layers) {
+        // Las capas decorativas no cuentan. La visibilidad NO importa: una capa oculta
+        // con colision sirve como "capa de colision invisible" pintada a mano.
+        if (!layer.collision) continue;
+        int idx = layer.tiles[cell];
+        if (idx >= 0 && isSolid(idx)) return true;
+    }
+    return false;
 }
 
 bool TilemapRenderer::isSolidAt(float worldX, float worldY) const {
@@ -206,10 +254,15 @@ bool TilemapRenderer::isSolidAt(float worldX, float worldY) const {
 
 // Carga un mapa exportado desde Tiled en formato JSON. SUPUESTOS DEL EXPORT:
 //  - Mapa ortogonal, tileset EMBEBIDO en el JSON (no externo .tsx).
-//  - Se usa la PRIMERA capa de tipo "tilelayer" (si hay varias, se ignora el resto).
+//  - Se leen TODAS las capas de tipo "tilelayer", en el orden de Tiled (la de abajo
+//    del panel es la del fondo). Los grupos de capas se aplanan. Cada capa respeta su
+//    "visible" y su "opacity", y su propiedad booleana personalizada "collision"
+//    (si falta vale true; false = capa decorativa que nunca frena). El offset y el
+//    parallax por capa de Tiled se ignoran.
+//  - Capas en CSV y mapa finito: cada capa trae 'data' como array de width*height.
 //  - Se ignoran los bits de flip/rotacion de Tiled (se enmascaran los 3 bits altos
 //    del gid): se asume que el mapa no usa tiles volteados. LIMITACION conocida.
-//  - La capa de objetos NO se lee en este paso.
+//  - Las capas de objetos NO se leen aqui (ver TiledObjectLayer / LevelData).
 // CONVERSION DE INDICES: Tiled usa 0 = vacio y los tiles empiezan en "firstgid";
 // nuestro motor usa -1 = vacio y 0 = primer tile. Por cada gid: 0 -> -1, y >0 ->
 // (gid sin bits de flip) - firstgid. SOLIDEZ: por cada tile del tileset con una
@@ -269,34 +322,49 @@ bool TilemapRenderer::loadFromTiledJson(const std::string& filePath) {
     if (slash != std::string::npos) dir = filePath.substr(0, slash + 1);
     std::string imagePath = dir + image;
 
-    // Primera capa de tiles.
+    // Todas las capas de tiles, en orden de dibujo.
     if (!j.contains("layers") || !j["layers"].is_array()) {
         SDL_Log("TilemapRenderer: '%s' no tiene layers", filePath.c_str());
         return false;
     }
-    const json* layer = nullptr;
-    for (const auto& l : j["layers"]) {
-        if (l.value("type", std::string()) == "tilelayer") { layer = &l; break; }
-    }
-    if (!layer || !layer->contains("data") || !(*layer)["data"].is_array()) {
-        SDL_Log("TilemapRenderer: '%s' no tiene una tilelayer con 'data'",
-                filePath.c_str());
-        return false;
-    }
-    const json& data = (*layer)["data"];
-    if ((int)data.size() != newWidth * newHeight) {
-        SDL_Log("TilemapRenderer: 'data' (%d) no coincide con width*height (%d) en '%s'",
-                (int)data.size(), newWidth * newHeight, filePath.c_str());
+    std::vector<TiledTileLayerRef> refs;
+    collectTileLayers(j["layers"], true, 1.0f, refs);
+    if (refs.empty()) {
+        SDL_Log("TilemapRenderer: '%s' no tiene ninguna tilelayer", filePath.c_str());
         return false;
     }
 
     // Conversion de gids a nuestros indices (0 -> -1; >0 -> gid - firstgid).
     const unsigned FLIP_MASK = 0x1FFFFFFFu; // limpia los 3 bits altos de flip/rotacion
-    std::vector<int> newTiles;
-    newTiles.reserve(data.size());
-    for (const auto& v : data) {
-        unsigned gid = v.get<unsigned>() & FLIP_MASK;
-        newTiles.push_back(gid == 0 ? -1 : (int)gid - firstgid);
+    std::vector<Layer> newLayers;
+    for (const TiledTileLayerRef& ref : refs) {
+        const json& l = *ref.json;
+        std::string layerName = l.value("name", std::string());
+        if (!l.contains("data") || !l["data"].is_array()) {
+            SDL_Log("TilemapRenderer: la capa '%s' de '%s' no trae 'data' como array "
+                    "(exportala en CSV y con el mapa finito)",
+                    layerName.c_str(), filePath.c_str());
+            return false;
+        }
+        const json& data = l["data"];
+        if ((int)data.size() != newWidth * newHeight) {
+            SDL_Log("TilemapRenderer: la capa '%s' trae %d celdas y el mapa tiene %d en '%s'",
+                    layerName.c_str(), (int)data.size(), newWidth * newHeight,
+                    filePath.c_str());
+            return false;
+        }
+
+        Layer layer;
+        layer.name      = layerName;
+        layer.visible   = ref.visible;
+        layer.opacity   = ref.opacity;
+        layer.collision = layerBoolProperty(l, "collision", true);
+        layer.tiles.reserve(data.size());
+        for (const auto& v : data) {
+            unsigned gid = v.get<unsigned>() & FLIP_MASK;
+            layer.tiles.push_back(gid == 0 ? -1 : (int)gid - firstgid);
+        }
+        newLayers.push_back(std::move(layer));
     }
 
     // Tiles solidos: propiedad booleana "solid"==true en el tileset embebido.
@@ -323,7 +391,9 @@ bool TilemapRenderer::loadFromTiledJson(const std::string& filePath) {
     texture = gameObject->scene->getAssets().loadTexture(path); // awake ya corrio
     solids.clear();
     for (int s : newSolids) setSolid(s);
-    setMap(newTiles, newWidth, newHeight);
+    layers = std::move(newLayers);
+    mapWidth = newWidth;
+    mapHeight = newHeight;
     return true;
 }
 
@@ -337,7 +407,7 @@ float TilemapRenderer::getWorldHeight() const {
 }
 
 void TilemapRenderer::render() {
-    if (!texture || tiles.empty()) return;
+    if (!texture || layers.empty()) return;
 
     SDL_Renderer* renderer = gameObject->scene->getRenderer();
     Transform* t = gameObject->transform;
@@ -379,46 +449,60 @@ void TilemapRenderer::render() {
     colMax = std::min(colMax, mapWidth - 1);
     rowMax = std::min(rowMax, mapHeight - 1);
 
-    for (int row = rowMin; row <= rowMax; ++row) {
-        for (int col = colMin; col <= colMax; ++col) {
-            int idx = tiles[row * mapWidth + col];
-            if (idx < 0) continue; // celda vacia
+    // La textura del tileset es PRESTADA y otros la pueden estar usando (el shooter
+    // dibuja sus balas con ella): si una capa cambia la opacidad, se restaura al final.
+    float baseAlpha = 1.0f;
+    SDL_GetTextureAlphaModFloat(texture, &baseAlpha);
 
-            // indice -> celda del tileset -> recorte de la imagen.
-            int tsCol = idx % tilesetColumns;
-            int tsRow = idx / tilesetColumns;
-            SDL_FRect src{
-                (float)(tsCol * tileW), (float)(tsRow * tileH),
-                (float)tileW, (float)tileH };
+    // Una pasada completa por capa, de la del fondo a la de delante: cada capa tapa
+    // a la anterior, igual que en Tiled.
+    for (const Layer& layer : layers) {
+        if (!layer.visible || layer.opacity <= 0.0f) continue;
+        SDL_SetTextureAlphaModFloat(texture, baseAlpha * layer.opacity);
 
-            // Esquinas de la celda en el MUNDO: la izq/arriba de esta celda y la
-            // izq/arriba de la SIGUIENTE (que es su der/abajo). Pasamos ambas a
-            // pantalla y redondeamos cada borde a entero. Asi el borde derecho de
-            // un tile cae en el mismo entero que el borde izquierdo del vecino:
-            // sin costura sub-pixel ni solape (la fuente del bleeding al escalar
-            // con coordenadas fraccionarias por camara/zoom).
-            float worldLeft = t->x + col * worldTileW;
-            float worldTop = t->y + row * worldTileH;
-            float worldRight = worldLeft + worldTileW;
-            float worldBottom = worldTop + worldTileH;
+        for (int row = rowMin; row <= rowMax; ++row) {
+            for (int col = colMin; col <= colMax; ++col) {
+                int idx = layer.tiles[row * mapWidth + col];
+                if (idx < 0) continue; // celda vacia
 
-            float sLeft, sTop, sRight, sBottom;
-            if (cam) {
-                cam->worldToScreen(worldLeft, worldTop, sLeft, sTop);
-                cam->worldToScreen(worldRight, worldBottom, sRight, sBottom);
-            } else {
-                sLeft = worldLeft; sTop = worldTop;
-                sRight = worldRight; sBottom = worldBottom;
+                // indice -> celda del tileset -> recorte de la imagen.
+                int tsCol = idx % tilesetColumns;
+                int tsRow = idx / tilesetColumns;
+                SDL_FRect src{
+                    (float)(tsCol * tileW), (float)(tsRow * tileH),
+                    (float)tileW, (float)tileH };
+
+                // Esquinas de la celda en el MUNDO: la izq/arriba de esta celda y la
+                // izq/arriba de la SIGUIENTE (que es su der/abajo). Pasamos ambas a
+                // pantalla y redondeamos cada borde a entero. Asi el borde derecho de
+                // un tile cae en el mismo entero que el borde izquierdo del vecino:
+                // sin costura sub-pixel ni solape (la fuente del bleeding al escalar
+                // con coordenadas fraccionarias por camara/zoom).
+                float worldLeft = t->x + col * worldTileW;
+                float worldTop = t->y + row * worldTileH;
+                float worldRight = worldLeft + worldTileW;
+                float worldBottom = worldTop + worldTileH;
+
+                float sLeft, sTop, sRight, sBottom;
+                if (cam) {
+                    cam->worldToScreen(worldLeft, worldTop, sLeft, sTop);
+                    cam->worldToScreen(worldRight, worldBottom, sRight, sBottom);
+                } else {
+                    sLeft = worldLeft; sTop = worldTop;
+                    sRight = worldRight; sBottom = worldBottom;
+                }
+
+                float dLeft = std::round(sLeft);
+                float dTop = std::round(sTop);
+                SDL_FRect dst{
+                    dLeft, dTop,
+                    std::round(sRight) - dLeft,
+                    std::round(sBottom) - dTop };
+
+                SDL_RenderTexture(renderer, texture, &src, &dst);
             }
-
-            float dLeft = std::round(sLeft);
-            float dTop = std::round(sTop);
-            SDL_FRect dst{
-                dLeft, dTop,
-                std::round(sRight) - dLeft,
-                std::round(sBottom) - dTop };
-
-            SDL_RenderTexture(renderer, texture, &src, &dst);
         }
     }
+
+    SDL_SetTextureAlphaModFloat(texture, baseAlpha);
 }
