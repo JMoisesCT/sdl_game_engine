@@ -12,40 +12,82 @@ de objetos/componentes que se actualiza y dibuja.
 Este repositorio es la **base de un curso** de desarrollo de videojuegos. Cada sesión suma una
 capacidad nueva al motor.
 
+![Platformer: Mask Dude saltando, con HUD de vida y frutas](docs/screenshots/platformer.png)
+
+| Top-down (`2`) | Shooter (`3`) |
+|---|---|
+| ![Top-down: el ninja en un mapa de Tiled](docs/screenshots/topdown.png) | ![Shooter: la nave dispara, con HUD de puntaje](docs/screenshots/shooter.png) |
+
 ---
 
 ## Características
 
 Lo que el motor ya hace hoy:
 
+**Núcleo**
+
 - **Sistema de componentes** estilo Unity: `GameObject` + `Transform` + componentes con ciclo
-  de vida `awake` / `start` / `update` / `render` / `onCollision`. El `Transform` marca el
-  **centro** del objeto.
-- **Sprites**: `SpriteRenderer` con recortes, flip horizontal y anclaje al centro.
-- **Animación por spritesheet**: `SpriteAnimator` con varios formatos: celdas numeradas de
-  un solo sheet, una tira (un archivo) por animación, o una fila/columna de un sheet en
-  grilla (para personajes direccionales).
-- **Cámara**: `Camera` + `FollowCamera` con zona muerta y suavizado.
-- **Física AABB**: `RigidBody2D` + `BoxCollider` con gravedad, colisiones, triggers y
-  detección de "grounded".
+  de vida `awake` / `start` / `update` / `render` / `onCollision`. `start` corre una sola vez,
+  en el primer `update`, cuando el objeto ya tiene todos sus componentes. Los componentes se
+  recorren en **orden de inserción** (determinista). El `Transform` marca el **centro** del
+  objeto.
+- **Tags y capas de dibujo**: `GameObject::tag` clasifica ("Player", "Enemy", "Hazard"…) y los
+  componentes genéricos filtran con `compareTag`, nunca por `name`. `sortingOrder` decide qué
+  se dibuja delante.
 - **Ciclo de vida**: `destroy` diferido, `Lifetime` (autodestrucción por tiempo) y `Spawner`.
-- **Tilemap**: `TilemapRenderer` (grilla + tileset) con colisión de tiles, cargable desde
-  **código**, desde un **archivo de texto propio** (`.map`) o desde **Tiled JSON** con tileset
-  embebido (vía **nlohmann/json**, que viene incluida en el repo en `engine/third_party/`).
-  Expone consultas del mapa cargado (`getMapWidth/Height`, `getTileWidth/Height`,
-  `getWorldWidth/Height`) útiles, p. ej., para centrar la cámara según el ancho del mapa.
+- **`Input` consultable**: clase estática con `isDown` / `wasPressed` / `wasReleased` /
+  `axis`, ratón y rueda, y un `enum class Key` propio (`Key::Space`, no `SDL_SCANCODE_SPACE`).
+- **`AssetManager`**: dueño de las **texturas** (cargadas con filtro *nearest*, para pixel art
+  sin sangrado) y de las **fuentes** (`loadFont(ruta, tamaño)`); los renderers solo las piden
+  prestadas.
+
+**Render y cámara**
+
+- **Sprites**: `SpriteRenderer` con recortes, flip horizontal, anclaje al centro y `visible`.
+- **Animación por spritesheet**: `SpriteAnimator` con celdas numeradas de un solo sheet, una
+  tira (un archivo) por animación, o una fila/columna de un sheet en grilla (personajes
+  direccionales). Clips de un solo uso con `isFinished()` y `setOnComplete(cb)`.
+- **`AnimatorStateMachine`**: elige el clip con reglas `(clip, condición)` por prioridad.
+- **Cámara**: `Camera` + `FollowCamera` con zona muerta, suavizado, límites del mapa y
+  *look-ahead*. **`ParallaxBackground`** para fondos que se mueven más lento que la cámara.
+- **Texto y HUD**: `TextRenderer` (vía **SDL3_ttf**) en pantalla o en el mundo, con
+  alineación, fuente pixel nítida y *dirty flag* (solo regenera la textura si cambia el texto).
+
+**Física**
+
+- **AABB**: `RigidBody2D` + `BoxCollider` con gravedad, colisiones, triggers y `grounded`.
+- **`PlatformerMotor`**: personaje de plataformas genérico. El juego le dice la *intención*
+  (mover, saltar) y el motor aplica aceleración y frenado, altura de salto en píxeles, salto
+  corto al soltar, *coyote time*, *jump buffer* y saltos en el aire.
+- **`TilemapCollider`**: los tiles frenan sin crear un collider por tile; la física le
+  pregunta al mapa y separa eje por eje (sin engancharse en las costuras entre tiles).
+
+**Mapas y niveles**
+
+- **Tilemap**: `TilemapRenderer` cargable desde **código**, desde un **archivo de texto propio**
+  (`.map`) o desde **Tiled JSON** con tileset embebido y **varias capas** (visibilidad,
+  opacidad, capas decorativas sin colisión). Culling de celdas fuera de pantalla.
 - **Capa de objetos de Tiled**: `TiledObjectLayer` lee las capas *objectgroup* como **datos
-  planos** (`TiledObject`: `type`, centro ya corregido, tamaño y propiedades personalizadas).
-  El motor no sabe qué significa cada `type`; la semántica (jugador, enemigo, power-up…) la
-  pone el juego con una fábrica sobre `type`.
-- **Texto y HUD**: `TextRenderer` (vía **SDL3_ttf**) dibuja una cadena con una fuente cacheada;
-  modo `screenSpace` para HUD fijo (ignora la cámara) o texto en el mundo, con *dirty flag*
-  para regenerar la textura solo cuando el texto cambia. Usa `TTF_RenderText_Solid` (sin
-  antialiasing) para que la fuente pixel quede nítida.
-- **Debugger conmutable**: dibujo de colliders, zona muerta y primitivas (se prende/apaga en
-  caliente).
-- **`AssetManager`**: dueño de las **texturas** y de las **fuentes** (`loadFont(ruta, tamaño)`,
-  cacheadas por pareja ruta/tamaño); los renderers solo las piden prestadas.
+  planos** (`TiledObject`). El motor no sabe qué significa cada `type`: la fábrica vive en el
+  juego.
+- **Archivo de nivel** `.level.json` (`LevelData`): objetos y ajustes de cámara, separado del
+  mapa de Tiled. Tiled escribe el mapa; el editor del motor escribe el nivel.
+- **Editor de niveles** (`F2`) con paneles de **Dear ImGui**: seleccionar, arrastrar, crear,
+  duplicar, borrar y editar propiedades de los objetos, ajustar la cámara, deshacer/rehacer y
+  guardar. Ver [Editor de niveles](#editor-de-niveles-f2).
+
+**Reglas de juego reutilizables**
+
+- `Health` (vida, invulnerabilidad temporal y parpadeo), `Hazard` (daño al contacto con
+  empujón), `Collectible` (recoger con callback), `Checkpoint` + `Respawn` (muerte en dos
+  tiempos y reaparición) y `KillZone` (caída fuera del mapa). El motor no lleva cuentas: qué
+  pasa al morir o al recoger lo decide el juego con callbacks.
+
+**Depuración**
+
+- **`Debugger` conmutable** (`F1`): colliders, zona muerta, primitivas y texto en el mundo.
+
+  ![Platformer con F1: colliders dibujados](docs/screenshots/platformer_debug.png)
 
 ---
 
@@ -78,14 +120,19 @@ sdl_game_engine/
 │   ├── GameObject.h        #   objeto contenedor de componentes
 │   ├── Transform.h         #   posición/escala/rotación (centro del objeto)
 │   ├── Scene.{h,cpp}       #   contenedor de objetos + fase de física + render
-│   ├── AssetManager.{h,cpp}#   carga y posee texturas
+│   ├── Input.*             #   teclado y ratón consultables (Key propio)
+│   ├── AssetManager.{h,cpp}#   carga y posee texturas y fuentes
 │   ├── SpriteRenderer.*    #   dibujo de sprites
 │   ├── SpriteAnimator.*    #   animación por spritesheet
+│   ├── AnimatorStateMachine.h #  elige el clip según reglas
 │   ├── TextRenderer.*      #   texto/HUD con fuentes (SDL3_ttf)
-│   ├── Camera.*  FollowCamera.*
+│   ├── Camera.*  FollowCamera.*  ParallaxBackground.*
 │   ├── RigidBody2D.h  BoxCollider.*   # física AABB
+│   ├── PlatformerMotor.*   #   personaje de plataformas genérico
 │   ├── TilemapRenderer.*   #   grilla de tiles (código / archivo / Tiled JSON)
+│   ├── TilemapCollider.*   #   colisión contra el tilemap por consulta
 │   ├── TiledObjectLayer.*  #   lee la capa de objetos de Tiled como datos planos
+│   ├── Health.*  Hazard.*  Collectible.*  Checkpoint.*  Respawn.*  KillZone.*
 │   ├── LevelData.*         #   archivo de nivel .level.json (objetos + cámara)
 │   ├── LevelEditor.*       #   editor de niveles (F2) con paneles ImGui
 │   ├── Lifetime.h  Spawner.h
@@ -102,7 +149,8 @@ sdl_game_engine/
 │   ├── pixel_adventure/    #   sprites del pack Pixel Adventure (platformer)
 │   ├── ninja_adventure/    #   sprites/tileset (top-down) y fuente del HUD (Ui/Font)
 │   ├── kenney_pixelshmup/  #   naves y tileset del pack Kenney Pixel Shmup (shooter)
-│   └── maps/               #   niveles de Tiled (.json/.tmx) y mapa propio (.map)
+│   └── maps/               #   mapas de Tiled (.json/.tmx), niveles (.level.json) y mapa propio (.map)
+├── docs/screenshots/       # Capturas usadas en este README
 └── sdl_game_engine.vcxproj # Proyecto de Visual Studio (un solo ejecutable)
 ```
 
@@ -188,17 +236,21 @@ Hay **tres ejemplos** que se cambian en caliente con las teclas numéricas:
 
 Controles dentro de cada ejemplo:
 
-- **Platformer (`1`)**: `←`/`→` mueven, `Espacio` salta.
+- **Platformer (`1`)**: `←`/`→` mueven, `Espacio` salta (mantenerlo salta más alto). Hay
+  frutas que recoger, trampas que quitan vida, un checkpoint y la meta.
 - **Top-down (`2`)**: `←`/`→`/`↑`/`↓` mueven en las 4 direcciones.
-- **Shooter (`3`)**: `←`/`→` mueven, `Espacio` dispara.
+- **Shooter (`3`)**: `←`/`→`/`↑`/`↓` mueven, `Espacio` dispara.
 
 ### Editor de niveles (`F2`)
 
 `F2` funciona como Stop/Play de Unity: al entrar, el nivel vuelve a su estado inicial y se
 congela (no hay física ni animación); al salir, se juega con lo editado. Mientras editas, la
 ventana se **maximiza** (puedes cambiarle el tamaño a mano) y los textos del editor se
-agrandan según la escala de tu pantalla; al volver a jugar, la ventana recupera su tamaño. Edita los **objetos**
-del nivel (jugador, frutas, trampas, checkpoint, meta); el terreno se edita en Tiled.
+agrandan según la escala de tu pantalla; al volver a jugar, la ventana recupera su tamaño.
+Edita los **objetos** del nivel (jugador, frutas, trampas, checkpoint, meta) y la **cámara**;
+el terreno se edita en Tiled.
+
+![Editor de niveles: paneles Objetos, Inspector y Cámara, con una fruta seleccionada](docs/screenshots/editor.png)
 
 | Control | Acción |
 |---|---|
@@ -208,13 +260,24 @@ del nivel (jugador, frutas, trampas, checkpoint, meta); el terreno se edita en T
 | `G` | Grilla de medio tile activada/desactivada (sin grilla, píxel a píxel) |
 | `C` | Mostrar/ocultar las celdas sólidas del mapa (en rojo) |
 | `Ctrl+S` | Guardar `platformer_level1.level.json` |
-| `F5` | Recargar (después de pintar en Tiled) |
+| `Ctrl+Z` | Deshacer |
+| `Ctrl+Y` / `Ctrl+Shift+Z` | Rehacer |
+| `F5` | Recargar desde disco (el nivel solo si no hay cambios sin guardar) |
 | `Esc` | Quitar la selección |
 | `Ctrl+D` | Duplicar el objeto seleccionado |
 | `Supr` | Borrar el objeto seleccionado |
 
 La barra inferior muestra el objeto elegido y avisa con `*SIN GUARDAR` si hay cambios
 pendientes. Mientras se edita, `1`/`2`/`3` no cambian de ejemplo.
+
+- **Deshacer / rehacer**: cada arrastre o cada campo editado es **un** paso. Si deshaces hasta
+  lo último guardado, el aviso `*SIN GUARDAR` desaparece.
+- **Recarga automática del mapa**: si guardas el mapa en Tiled con el editor abierto, el
+  terreno se actualiza solo (no hace falta `F5`).
+- **Avisos**: un objeto con el centro fuera del mapa o dentro de un tile sólido se marca en
+  naranja.
+- **Cambios sin guardar**: al cerrar la ventana o cambiar de ejemplo con cambios pendientes, el
+  juego pregunta si guardar, descartar o cancelar.
 
 Además hay tres **paneles** (hechos con Dear ImGui):
 
@@ -299,16 +362,20 @@ assets/maps/platformer_level1.json
 En el platformer, el jugador, las frutas, las trampas, el checkpoint y la meta viven en
 `assets/maps/platformer_level1.level.json`. Cada archivo tiene **un solo programa que lo
 escribe** (Tiled el mapa; el editor del motor, `F2`, el `.level.json`), así ninguno pisa los
-cambios del otro. Las posiciones se ajustan con el editor; lo que todavía no hace (crear o
-borrar objetos, cambiar propiedades como el tipo de fruta) se edita a mano en el archivo:
+cambios del otro. Todo se hace desde el editor: mover, crear, duplicar y borrar objetos, y
+cambiar sus propiedades (por ejemplo, el tipo de fruta). Si prefieres mirarlo por dentro, el
+archivo guarda un objeto por línea:
 
 ```json
 { "id": 2, "type": "Fruit", "x": 200, "y": 242, "properties": { "fruit": "Apple" } }
 ```
 
 `x`, `y` son el **centro** del objeto en píxeles del mapa (en un objeto punto, los mismos
-números que muestra Tiled). La
-capa `Objetos` que aún tiene el mapa de Tiled **ya no se lee** en el platformer.
+números que muestra Tiled). La capa `Objetos` que aún tiene el mapa de Tiled **ya no se lee**
+en el platformer.
+
+Con el editor abierto puedes seguir pintando en Tiled: al guardar allí el mapa, el editor lo
+recarga solo.
 
 ### ⚠️ Advertencias importantes
 
@@ -332,27 +399,34 @@ Proyecto en **desarrollo activo**: el motor crece sesión a sesión a lo largo d
 
 **Hecho:**
 
-- Núcleo: `Component`, `GameObject`, `Transform`, `Scene`, `AssetManager`.
-- Render: `SpriteRenderer` (recortes, flip, anclaje al centro), `SpriteAnimator`.
-- Cámara: `Camera` (zoom, mundo→pantalla) y `FollowCamera` (zona muerta + suavizado).
-- Física: `RigidBody2D` (gravedad, `grounded`), `BoxCollider` (AABB, triggers) y fase de
-  colisiones en `Scene`.
+- Núcleo: `Component`, `GameObject` (con `tag` y `sortingOrder`), `Transform`, `Scene`,
+  `AssetManager`; `start` que corre una vez y orden de componentes determinista.
+- `Input` consultable (teclado, ratón y rueda) y `dt` medido en nanosegundos con tope.
+- Render: `SpriteRenderer`, `SpriteAnimator` (con clips de un solo uso),
+  `AnimatorStateMachine`, `TextRenderer` (SDL3_ttf) y `ParallaxBackground`.
+- Cámara: `Camera` y `FollowCamera` (zona muerta, suavizado, límites y *look-ahead*).
+- Física: `RigidBody2D`, `BoxCollider` (AABB, triggers), `PlatformerMotor` (game feel de
+  plataformas) y `TilemapCollider` (colisión por consulta y eje por eje).
 - Ciclo de vida: `destroy` diferido, `Lifetime`, `Spawner`.
-- `TilemapRenderer` (código / archivo propio / Tiled JSON, con consultas de tamaño) y
-  `TiledObjectLayer` (capa de objetos como datos planos); `Debugger` conmutable.
-- `TextRenderer` (SDL3_ttf) y HUD de puntaje en el shooter; `AssetManager` cachea fuentes.
+- Reglas de juego: `Health`, `Hazard`, `Collectible`, `Checkpoint` + `Respawn`, `KillZone`.
+- Mapas: `TilemapRenderer` (código / archivo propio / Tiled JSON con varias capas) y
+  `TiledObjectLayer`; `Debugger` conmutable.
+- Niveles: archivo `.level.json` (`LevelData`) y **editor de niveles** con Dear ImGui
+  (paneles, deshacer/rehacer, recarga automática del mapa, avisos, confirmar al salir).
 - Tres ejemplos: platformer, top-down y shooter (`1`/`2`/`3`).
 
 **Pendiente (sin orden fijo):**
 
-- `Health` / `Damageable` (vida y condición de derrota).
-- Clase `Input` consultable (`isKeyDown` / `wasPressed`).
-- UI básica más allá del HUD (diálogos, menús); gestor de escenas (menú → juego → game over).
-- Sistema de tags o capas (reemplazar el filtro por `name`).
+- Editor: migrar el shooter al `.level.json`; capas de tiles que se dibujen **delante** de
+  los objetos.
+- Física de plataformas: plataformas de un solo sentido (*one-way*), `PathMover` y
+  plataformas móviles que arrastran al jugador, plataformas que se caen, materiales
+  (hielo, barro).
+- Presentación: partículas, efectos de un solo uso, HUD completo (vidas, cronómetro),
+  gestor de escenas (menú → juego → game over).
 - `AudioSource` (efectos y música). **SDL3_mixer 3.2.4 ya está instalado y enlazado**; falta
   el componente del motor que lo use.
-- Mejoras de física (one-way platforms, broad-phase, fricción/rebote); handles seguros;
-  parenting de `Transform`; partículas.
+- Handles seguros (evitar punteros colgantes); parenting de `Transform`.
 - En Tiled siguen sin soportarse los **tiles volteados** (se ignoran los bits de flip del GID).
 
 **Limitaciones conocidas:** colisiones O(n²) (bien para decenas de objetos, no miles); la
