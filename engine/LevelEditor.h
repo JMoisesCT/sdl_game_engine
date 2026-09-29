@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "LevelData.h"
+#include "ObjectCatalog.h"
 
 class Scene;
 class GameObject;
@@ -23,7 +24,7 @@ union  SDL_Event;
 //
 //     LevelEditor editor;
 //     editor.initGui(window, renderer);                     // paneles (Dear ImGui)
-//     editor.open("assets/maps/nivel.level.json", buildMiNivel);
+//     editor.open("assets/maps/nivel.level.json", buildMiNivel, miCatalogo);
 //     editor.buildInto(*scene);
 //     // ...dentro de while (SDL_PollEvent(&e)):
 //     if (e.type == SDL_EVENT_QUIT && editor.confirmDiscard("salir")) running = false;
@@ -52,7 +53,8 @@ union  SDL_Event;
 // sprite muestra el primer cuadro de su animacion.
 //
 // Controles en edicion:
-//   clic izq.            seleccionar / arrastrar       G    grilla (medio tile) on/off
+//   F2                   jugar (desde el PlayerStart)  Shift+F2  jugar desde el cursor
+//   clic izq.           seleccionar / arrastrar       G    grilla (medio tile) on/off
 //   clic der. o flechas  mover la vista                C    ver celdas solidas on/off
 //   rueda                zoom (hacia el cursor)        F5   recargar (mapa y nivel)
 //   Ctrl+S               guardar el .level.json        Esc  quitar la seleccion
@@ -69,6 +71,16 @@ union  SDL_Event;
 //
 // RECARGA AUTOMATICA: editando, si el mapa de Tiled cambia en disco (se guardo en Tiled),
 // la escena se reconstruye sola con el mapa nuevo. Los objetos no se tocan.
+//
+// CATALOGO (opcional, ver ObjectCatalog.h): la lista de type que entiende la fabrica del
+// juego. Con el, "Nuevo" ofrece todos los type del juego con sus propiedades por defecto,
+// el Inspector muestra combos para los valores fijos (y la ayuda de cada type), y los
+// avisos incluyen type desconocidos, valores no validos y objetos unicos repetidos.
+//
+// JUGAR DESDE EL CURSOR (Shift+F2): juega una COPIA del nivel con el punto de aparicion
+// (el type marcado playerSpawn en el catalogo) movido al raton. El modelo no cambia: al
+// volver al editor el PlayerStart sigue donde estaba. Sirve para probar el final de un
+// nivel largo sin recorrerlo entero.
 //
 // CAMBIOS SIN GUARDAR: antes de cerrar la ventana o cambiar de ejemplo, main llama a
 // confirmDiscard(), que pregunta Guardar / Descartar / Cancelar.
@@ -96,9 +108,10 @@ public:
     void processEvent(const SDL_Event& e);
 
     // Abre un archivo de nivel: lo lee (sera el modelo que se edita) y recuerda la
-    // fabrica. Si el archivo no se puede leer devuelve false, el editor queda sin nivel
-    // (F2 no hace nada) y buildInto construye igual, con un nivel vacio.
-    bool open(const std::string& levelPath, BuildFn build);
+    // fabrica y su catalogo de type (opcional). Si el archivo no se puede leer devuelve
+    // false, el editor queda sin nivel (F2 no hace nada) y buildInto construye igual, con
+    // un nivel vacio.
+    bool open(const std::string& levelPath, BuildFn build, ObjectCatalog catalog = {});
 
     // Olvida el nivel (p. ej. al cambiar a un ejemplo que no tiene archivo de nivel).
     // Si habia cambios sin guardar, lo avisa en el log: se pierden.
@@ -180,9 +193,26 @@ private:
     void resetHistory();       // al abrir o recargar desde disco: historia vacia
     void refreshDirty() { dirty = uncommitted || version != savedVersion; }
 
+    // --- Catalogo -------------------------------------------------------------------
+    const ObjectTypeSpec* specOf(const TiledObject& o) const { return findObjectType(catalog, o.type); }
+    const ObjectTypeSpec* spawnSpec() const; // el type playerSpawn (nullptr si no hay)
+    int  countType(const std::string& type) const;
+    // Agrega las propiedades que el catalogo declara para su type y el objeto no tiene
+    // (con su valor por defecto). No quita las que sobran.
+    void addMissingProperties(TiledObject& o) const;
+
+    // --- Jugar desde el cursor (Shift+F2) ------------------------------------------------
+    // Guarda la posicion del raton (px del mapa) como punto de aparicion de la proxima
+    // partida. false si no se puede (sin type playerSpawn, raton en una pared...).
+    bool preparePlayFromCursor(Scene& scene);
+    // Copia del modelo con el punto de aparicion movido: lo que se juega con Shift+F2.
+    LevelData levelForPlay() const;
+
     // --- Avisos y recarga del mapa ----------------------------------------------------
     // "" si el objeto esta bien; si no, el problema en pocas palabras.
     std::string objectWarning(const TilemapRenderer* map, const TiledObject& o) const;
+    // Lo mismo para un punto: "fuera del mapa", "dentro de un tile solido" o "".
+    std::string positionWarning(const TilemapRenderer* map, float mx, float my) const;
     // Fecha de modificacion del mapa de Tiled en disco (0 si no se puede leer).
     int64_t mapFileTime() const;
     void watchMapFile(float dt);
@@ -209,11 +239,16 @@ private:
 
     std::string path;       // .level.json abierto
     BuildFn     build;
+    ObjectCatalog catalog;  // los type del juego (puede ir vacio)
     LevelData   level;      // EL MODELO: lo que se edita y se guarda
     bool levelOpen = false;
     bool editing   = false;
     bool dirty     = false;
     bool rebuildRequested = false;
+
+    // Shift+F2: la partida en curso empezo desde el cursor, no desde el punto de aparicion.
+    bool  playFromCursor = false;
+    float playFromX = 0.0f, playFromY = 0.0f; // px del mapa
 
     // Vista del editor (sobrevive a las reconstrucciones de la escena).
     float viewX = 0.0f, viewY = 0.0f, viewZoom = 1.0f;

@@ -67,6 +67,7 @@
     <ClInclude Include="engine\KillZone.h" />
     <ClInclude Include="engine\LevelData.h" />
     <ClInclude Include="engine\LevelEditor.h" />
+    <ClInclude Include="engine\ObjectCatalog.h" />
     <ClInclude Include="engine\third_party\imgui\imconfig.h" />
     <ClInclude Include="engine\third_party\imgui\imgui.h" />
     <ClInclude Include="engine\third_party\imgui\imgui_internal.h" />

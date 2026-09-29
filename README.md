@@ -260,6 +260,8 @@ el terreno se edita en Tiled.
 
 | Control | Acción |
 |---|---|
+| `F2` | Volver a jugar (desde el `PlayerStart`) |
+| `Shift+F2` | **Jugar desde el cursor**: el jugador aparece donde está el ratón (el nivel no cambia) |
 | Clic izquierdo | Seleccionar un objeto / arrastrarlo |
 | Clic derecho (o `←`/`→`/`↑`/`↓`) | Mover la vista |
 | Rueda | Zoom hacia el cursor |
@@ -280,18 +282,24 @@ pendientes. Mientras se edita, `1`/`2`/`3` no cambian de ejemplo.
   lo último guardado, el aviso `*SIN GUARDAR` desaparece.
 - **Recarga automática del mapa**: si guardas el mapa en Tiled con el editor abierto, el
   terreno se actualiza solo (no hace falta `F5`).
+- **Jugar desde el cursor** (`Shift+F2`): para probar el final de un nivel largo sin
+  recorrerlo entero. Se juega una copia del nivel con el `PlayerStart` movido al ratón; al
+  volver al editor (`F2`) sigue donde estaba. No arranca si el cursor está sobre un tile
+  sólido o fuera del mapa.
 - **Avisos**: un objeto con el centro fuera del mapa o dentro de un tile sólido se marca en
-  naranja.
+  naranja. También un tipo que el juego no conoce, un valor no válido (una fruta mal
+  escrita) o un segundo `PlayerStart`.
 - **Cambios sin guardar**: al cerrar la ventana o cambiar de ejemplo con cambios pendientes, el
   juego pregunta si guardar, descartar o cancelar.
 
 Además hay tres **paneles** (hechos con Dear ImGui):
 
 - **Objetos**: la lista del nivel (doble clic centra la vista en el objeto) y los botones
-  **Nuevo** (elige un tipo que ya exista en el nivel o escribe uno), **Duplicar** y **Borrar**.
-- **Inspector**: el tipo, el nombre, la posición, el tamaño y las **propiedades** del objeto
-  elegido. Por ejemplo, cambia `fruit` de `Apple` a `Bananas` y la fruta cambia al terminar
-  de escribir.
+  **Nuevo** (los tipos que declara el juego, cada uno con sus propiedades por defecto; o uno
+  escrito a mano), **Duplicar** y **Borrar**.
+- **Inspector**: el tipo (elegido de la lista del juego, con una línea de ayuda), el nombre,
+  la posición, el tamaño y las **propiedades** del objeto elegido. Por ejemplo, elige
+  `Bananas` en el combo `fruit` y la fruta cambia en el acto.
 - **Cámara**: la zona muerta, el zoom y el adelanto de la cámara del juego, con una
   previsualización de lo que verá el jugador al empezar. Los valores con `*` vienen del
   archivo de nivel; "restablecer" vuelve al valor que pone el juego.

@@ -377,6 +377,22 @@ static void createFallKillZone(Scene& scene, const TilemapRenderer* map) {
     kz->addComponent<KillZone>()->targetTag = TAG_PLAYER;
 }
 
+ObjectCatalog platformerObjectCatalog() {
+    // Lo mismo que entiende la fabrica de abajo (buildPlatformerLevel), dicho para el
+    // editor: si la fabrica aprende un type nuevo, se agrega aqui tambien.
+    ObjectCatalog catalog;
+    catalog.push_back(ObjectTypeSpec("PlayerStart", "Donde aparece el jugador al empezar")
+                          .playerSpawn());
+    catalog.push_back(ObjectTypeSpec("Fruit", "Fruta coleccionable (cuenta en el HUD)")
+                          .choice("fruit", { "Apple", "Bananas", "Cherries", "Kiwi",
+                                             "Melon", "Orange", "Pineapple", "Strawberry" }));
+    catalog.push_back(ObjectTypeSpec("Spikes", "Pinchos en el suelo: quitan 1 de vida y empujan"));
+    catalog.push_back(ObjectTypeSpec("Saw", "Sierra giratoria: quita 1 de vida y empuja"));
+    catalog.push_back(ObjectTypeSpec("Checkpoint", "Bandera: al tocarla, ahi reaparece el jugador"));
+    catalog.push_back(ObjectTypeSpec("LevelEnd", "Meta del nivel").single());
+    return catalog;
+}
+
 void buildPlatformer(Scene& scene) {
     // Si el archivo falla, el nivel sale vacio (sin mapa ni objetos) pero el juego no se
     // cae: queda el log para saber por que.

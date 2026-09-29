@@ -159,10 +159,11 @@ void LevelEditor::processEvent(const SDL_Event& e) {
 
 // --- Abrir / cerrar / construir ------------------------------------------------------
 
-bool LevelEditor::open(const std::string& levelPath, BuildFn buildFn) {
+bool LevelEditor::open(const std::string& levelPath, BuildFn buildFn, ObjectCatalog types) {
     close();
     path  = levelPath;
     build = std::move(buildFn); // se guarda aunque falle la lectura: buildInto construye igual
+    catalog = std::move(types);
 
     LevelData loaded;
     if (!loadLevel(levelPath, loaded)) {
@@ -182,8 +183,10 @@ void LevelEditor::close() {
         SDL_Log("LevelEditor: se descartan los cambios sin guardar de '%s'.", path.c_str());
     path.clear();
     build = nullptr;
+    catalog.clear();
     level = LevelData();
     levelOpen = editing = dirty = rebuildRequested = pendingRebuild = false;
+    playFromCursor = false;
     selectedId = 0;
     dragging = dragMoved = panning = false;
     message.clear();
@@ -230,7 +233,12 @@ bool LevelEditor::confirmDiscard(const char* action) {
 void LevelEditor::buildInto(Scene& scene) {
     rebuildRequested = false;
     dragging = panning = false;
-    if (build) build(scene, level);
+    if (build) {
+        // Shift+F2: se juega una COPIA con el punto de aparicion en el cursor; el
+        // modelo (lo que se edita y se guarda) no se toca.
+        if (playFromCursor && !editing) build(scene, levelForPlay());
+        else                            build(scene, level);
+    }
     // La fabrica acaba de leer el mapa de disco: esa es la version que se ve.
     mapTime = mapTimeSeen = mapFileTime();
     mapPollTimer = MAP_POLL_SECONDS;
@@ -260,7 +268,14 @@ void LevelEditor::update(Scene& scene, float dt) {
 
     // F2 = Stop/Play. En los dos sentidos la escena se reconstruye desde el MODELO: al
     // entrar, para editar el estado inicial; al salir, para jugar lo editado.
+    // Shift+F2 (editando) juega igual, pero con el jugador apareciendo en el cursor.
     if (Input::wasPressed(Key::F2)) {
+        if (editing && shiftDown()) {
+            // Si no se puede (el motivo queda en la barra), se sigue editando.
+            if (!preparePlayFromCursor(scene)) return;
+        } else {
+            playFromCursor = false;
+        }
         if (!editing) {
             // Se empieza a editar desde donde estaba mirando la camara del juego.
             if (Camera* cam = scene.getActiveCamera()) {
@@ -494,20 +509,38 @@ void LevelEditor::resetHistory() {
 
 // --- Avisos y recarga automatica del mapa ---------------------------------------------
 
-std::string LevelEditor::objectWarning(const TilemapRenderer* map, const TiledObject& o) const {
+std::string LevelEditor::positionWarning(const TilemapRenderer* map, float mx, float my) const {
     if (!map || map->getMapWidth() <= 0 || map->getMapHeight() <= 0 ||
         map->getTileWidth() <= 0 || map->getTileHeight() <= 0) return "";
 
     // Todo en pixeles del MAPA, que es el espacio del archivo: no depende de la escala.
     float tw = (float)map->getTileWidth(), th = (float)map->getTileHeight();
-    if (o.cx < 0.0f || o.cy < 0.0f ||
-        o.cx >= map->getMapWidth() * tw || o.cy >= map->getMapHeight() * th)
+    if (mx < 0.0f || my < 0.0f ||
+        mx >= map->getMapWidth() * tw || my >= map->getMapHeight() * th)
         return "fuera del mapa";
+    if (map->isSolidCell((int)std::floor(mx / tw), (int)std::floor(my / th)))
+        return "dentro de un tile solido";
+    return "";
+}
+
+std::string LevelEditor::objectWarning(const TilemapRenderer* map, const TiledObject& o) const {
     // Se mira solo el CENTRO: los pinchos o una meta tocan el suelo con el borde, y eso
     // es correcto. Un centro dentro de la pared casi seguro es un error (el jugador
     // naceria atascado, una fruta quedaria inalcanzable).
-    if (map->isSolidCell((int)std::floor(o.cx / tw), (int)std::floor(o.cy / th)))
-        return "dentro de un tile solido";
+    std::string where = positionWarning(map, o.cx, o.cy);
+    if (!where.empty()) return "centro " + where;
+
+    // Con catalogo, tambien lo que la fabrica no va a entender.
+    if (catalog.empty()) return "";
+    const ObjectTypeSpec* spec = specOf(o);
+    if (!spec) return o.type.empty() ? "sin type" : "type que el juego no conoce";
+    if (spec->unique && countType(o.type) > 1) return "hay mas de un " + o.type;
+    for (const PropertySpec& p : spec->properties) {
+        if (p.isNumber || p.options.empty() || !o.hasString(p.key)) continue;
+        std::string value = o.getString(p.key);
+        if (std::find(p.options.begin(), p.options.end(), value) == p.options.end())
+            return p.key + " no valido: '" + value + "'";
+    }
     return "";
 }
 
@@ -652,10 +685,18 @@ void LevelEditor::setObjectPosition(Scene& scene, const TilemapRenderer* map, Ti
 
 void LevelEditor::createObject(const TilemapRenderer* map, const std::string& type) {
     TiledObject t;
-    // Si ya hay otro del mismo type, sus propiedades y su tamanio sirven de plantilla
-    // (una fruta nueva nace con "fruit"; sin plantilla, nace sin propiedades).
-    for (const TiledObject& other : level.objects) {
-        if (other.type == type) { t = other; break; }
+    if (const ObjectTypeSpec* spec = findObjectType(catalog, type)) {
+        // El catalogo del juego dice con que nace: tamanio y propiedades por defecto.
+        t.type = type;
+        t.w = spec->w;
+        t.h = spec->h;
+        addMissingProperties(t);
+    } else {
+        // Sin catalogo, si ya hay otro del mismo type, sus propiedades y su tamanio
+        // sirven de plantilla (sin plantilla, nace sin propiedades).
+        for (const TiledObject& other : level.objects) {
+            if (other.type == type) { t = other; break; }
+        }
     }
     t.id = level.nextObjectId++;
     t.type = type;
@@ -677,6 +718,11 @@ void LevelEditor::createObject(const TilemapRenderer* map, const std::string& ty
 void LevelEditor::duplicateSelected(const TilemapRenderer* map) {
     const TiledObject* o = findObject(selectedId);
     if (!o) return;
+    const ObjectTypeSpec* spec = specOf(*o);
+    if (spec && spec->unique) {
+        showMessage("Solo puede haber un " + o->type + " por nivel");
+        return;
+    }
     TiledObject copy = *o; // copia ANTES del push_back: el vector puede reubicarse
     copy.id = level.nextObjectId++;
     // Un tile a la derecha, para que no quede escondido justo encima del original.
@@ -701,6 +747,85 @@ void LevelEditor::deleteSelected() {
 void LevelEditor::markChanged(bool needsRebuild) {
     beginChange();
     if (needsRebuild) pendingRebuild = true;
+}
+
+// --- Catalogo ------------------------------------------------------------------------
+
+const ObjectTypeSpec* LevelEditor::spawnSpec() const {
+    for (const ObjectTypeSpec& spec : catalog)
+        if (spec.spawn) return &spec;
+    return nullptr;
+}
+
+int LevelEditor::countType(const std::string& type) const {
+    int n = 0;
+    for (const TiledObject& o : level.objects)
+        if (o.type == type) ++n;
+    return n;
+}
+
+void LevelEditor::addMissingProperties(TiledObject& o) const {
+    const ObjectTypeSpec* spec = findObjectType(catalog, o.type);
+    if (!spec) return;
+    for (const PropertySpec& p : spec->properties) {
+        if (p.isNumber) { if (!o.hasNumber(p.key)) o.numberProps[p.key] = p.defaultNumber; }
+        else            { if (!o.hasString(p.key)) o.stringProps[p.key] = p.defaultText; }
+    }
+}
+
+// --- Jugar desde el cursor -----------------------------------------------------------
+
+bool LevelEditor::preparePlayFromCursor(Scene& scene) {
+    // El editor no sabe cual de los type es "el jugador": se lo dice el catalogo.
+    const ObjectTypeSpec* spawn = spawnSpec();
+    if (!spawn) {
+        showMessage("Shift+F2: el catalogo del juego no marca ningun type como playerSpawn");
+        return false;
+    }
+    if (mouseOverGui) {
+        showMessage("Shift+F2: pon el raton sobre el mundo (no sobre un panel)");
+        return false;
+    }
+    TilemapRenderer* map = findMap(scene);
+    float wx, wy, mx, my;
+    screenToWorld(scene, Input::mouseX(), Input::mouseY(), wx, wy);
+    toMap(map, wx, wy, mx, my);
+    mx = std::round(mx);
+    my = std::round(my);
+    // Naciendo dentro de una pared el jugador quedaria atascado, y fuera del mapa se
+    // caeria sin mas: mejor no empezar.
+    std::string where = positionWarning(map, mx, my);
+    if (!where.empty()) {
+        showMessage("Shift+F2: el cursor esta " + where);
+        return false;
+    }
+    playFromCursor = true;
+    playFromX = mx;
+    playFromY = my;
+    return true;
+}
+
+LevelData LevelEditor::levelForPlay() const {
+    LevelData copy = level;
+    const ObjectTypeSpec* spawn = spawnSpec();
+    if (!spawn) return copy;
+    // Se mueve el primero de ese type (es el que usa la fabrica); si el nivel no tiene
+    // ninguno, la copia gana uno temporal.
+    for (TiledObject& o : copy.objects) {
+        if (o.type == spawn->type) {
+            o.cx = playFromX;
+            o.cy = playFromY;
+            return copy;
+        }
+    }
+    TiledObject t;
+    t.id = copy.nextObjectId++;
+    t.type = spawn->type;
+    t.cx = playFromX;
+    t.cy = playFromY;
+    addMissingProperties(t);
+    copy.objects.push_back(t);
+    return copy;
 }
 
 void LevelEditor::applyView(Scene& scene) const {
@@ -777,14 +902,33 @@ void LevelEditor::panelObjects(Scene& scene, const TilemapRenderer* map) {
     if (ImGui::Button("Borrar")) deleteSelected();
     ImGui::EndDisabled();
 
-    // "Nuevo": los type que YA hay en el nivel, o uno escrito a mano. El motor no
-    // conoce los type; solo los recoge del archivo.
+    // "Nuevo": los type del catalogo del juego, los que ya hay en el nivel (y el catalogo
+    // no tiene), o uno escrito a mano. El motor no conoce los type: se los dice el juego
+    // o los recoge del archivo.
     if (ImGui::BeginPopup("nuevo")) {
+        if (!catalog.empty()) {
+            ImGui::TextDisabled("Tipos del juego");
+            for (const ObjectTypeSpec& spec : catalog) {
+                // Un type unico que ya esta en el nivel no se puede crear otra vez.
+                bool taken = spec.unique && countType(spec.type) > 0;
+                std::string itemLabel = spec.type + (taken ? "  (ya hay uno)" : "");
+                if (ImGui::Selectable(itemLabel.c_str(), false,
+                                      taken ? ImGuiSelectableFlags_Disabled : 0)) {
+                    createObject(map, spec.type);
+                    ImGui::CloseCurrentPopup();
+                }
+                if (!spec.description.empty()) ImGui::SetItemTooltip("%s", spec.description.c_str());
+            }
+        }
+
         std::set<std::string> types;
         for (const TiledObject& o : level.objects)
-            if (!o.type.empty()) types.insert(o.type);
+            if (!o.type.empty() && !findObjectType(catalog, o.type)) types.insert(o.type);
 
-        ImGui::TextDisabled("Tipos del nivel");
+        if (!types.empty()) {
+            if (!catalog.empty()) ImGui::Separator();
+            ImGui::TextDisabled(catalog.empty() ? "Tipos del nivel" : "Otros tipos del nivel");
+        }
         for (const std::string& type : types) {
             if (ImGui::Selectable(type.c_str())) {
                 createObject(map, type);
@@ -857,10 +1001,36 @@ void LevelEditor::panelInspector(Scene& scene, const TilemapRenderer* map) {
     ImGui::Text("id: %d", o->id);
     std::string warning = objectWarning(map, *o);
     if (!warning.empty())
-        ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.15f, 1.0f), "Aviso: centro %s", warning.c_str());
+        ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.15f, 1.0f), "Aviso: %s", warning.c_str());
 
-    // type: lo interpreta la fabrica del juego -> reconstruir al terminar de escribir.
-    if (ImGui::InputText("type", &o->type)) markChanged(true);
+    // type: lo interpreta la fabrica del juego -> reconstruir al terminar de editar.
+    if (catalog.empty()) {
+        if (ImGui::InputText("type", &o->type)) markChanged(true);
+    } else {
+        // Con catalogo, se elige de la lista del juego (un type a mano no tendria fabrica).
+        // Al cambiarlo, el objeto gana las propiedades que espera su type nuevo.
+        if (ImGui::BeginCombo("type", o->type.empty() ? "(sin type)" : o->type.c_str())) {
+            for (const ObjectTypeSpec& spec : catalog) {
+                bool current = (spec.type == o->type);
+                bool taken = !current && spec.unique && countType(spec.type) > 0;
+                if (ImGui::Selectable(spec.type.c_str(), current,
+                                      taken ? ImGuiSelectableFlags_Disabled : 0) && !current) {
+                    o->type = spec.type;
+                    addMissingProperties(*o);
+                    markChanged(true);
+                }
+                if (!spec.description.empty()) ImGui::SetItemTooltip("%s", spec.description.c_str());
+            }
+            ImGui::EndCombo();
+        }
+        if (const ObjectTypeSpec* spec = specOf(*o)) {
+            if (!spec->description.empty()) {
+                ImGui::PushTextWrapPos(0.0f);
+                ImGui::TextDisabled("%s", spec->description.c_str());
+                ImGui::PopTextWrapPos();
+            }
+        }
+    }
     // name: solo identifica; la fabrica no lo usa.
     if (ImGui::InputText("nombre", &o->name)) markChanged(false);
 
@@ -882,9 +1052,25 @@ void LevelEditor::panelInspector(Scene& scene, const TilemapRenderer* map) {
     // Lo que se borre se anota y se quita DESPUES de recorrer: borrar de un std::map
     // mientras se lo recorre invalidaria el iterador.
     std::string removeText, removeNumber;
+    const ObjectTypeSpec* spec = specOf(*o);
     for (auto& kv : o->stringProps) {
         ImGui::PushID(("s:" + kv.first).c_str());
-        if (ImGui::InputText(kv.first.c_str(), &kv.second)) markChanged(true);
+        const PropertySpec* ps = spec ? spec->findProperty(kv.first) : nullptr;
+        if (ps && !ps->isNumber && !ps->options.empty()) {
+            // Valores fijos del juego: un combo, asi no hay forma de escribir "Aple".
+            if (ImGui::BeginCombo(kv.first.c_str(), kv.second.c_str())) {
+                for (const std::string& option : ps->options) {
+                    if (ImGui::Selectable(option.c_str(), option == kv.second) &&
+                        option != kv.second) {
+                        kv.second = option;
+                        markChanged(true);
+                    }
+                }
+                ImGui::EndCombo();
+            }
+        } else if (ImGui::InputText(kv.first.c_str(), &kv.second)) {
+            markChanged(true);
+        }
         ImGui::SameLine();
         if (ImGui::SmallButton("x")) removeText = kv.first;
         ImGui::PopID();
@@ -900,6 +1086,22 @@ void LevelEditor::panelInspector(Scene& scene, const TilemapRenderer* map) {
     if (!removeText.empty())   { o->stringProps.erase(removeText);   markChanged(true); }
     if (!removeNumber.empty()) { o->numberProps.erase(removeNumber); markChanged(true); }
     if (o->stringProps.empty() && o->numberProps.empty()) ImGui::TextDisabled("(ninguna)");
+
+    // Las que el catalogo espera y el objeto no tiene: la fabrica usara su valor por
+    // defecto, pero conviene verlas (p. ej. un objeto de un nivel escrito a mano).
+    if (spec) {
+        bool anyMissing = false;
+        for (const PropertySpec& p : spec->properties) {
+            bool has = p.isNumber ? o->hasNumber(p.key) : o->hasString(p.key);
+            if (has) continue;
+            ImGui::TextDisabled("falta: %s", p.key.c_str());
+            anyMissing = true;
+        }
+        if (anyMissing && ImGui::SmallButton("Agregar las que faltan")) {
+            addMissingProperties(*o);
+            markChanged(true);
+        }
+    }
 
     // Agregar una propiedad nueva (texto o numero).
     ImGui::Spacing();
@@ -1035,8 +1237,10 @@ void LevelEditor::render(Scene& scene) {
     if (!editing) {
         // Jugando: solo un recordatorio en la esquina.
         float ts = textScale();
-        label(r, 8.0f, outH - (CHAR + 8.0f) * ts,
-              dirty ? "F2: editor  (hay cambios SIN GUARDAR)" : "F2: editor", ts, 255, 255, 255);
+        std::string hint = "F2: editor";
+        if (playFromCursor) hint += "  (jugando desde el cursor)";
+        if (dirty)          hint += "  (hay cambios SIN GUARDAR)";
+        label(r, 8.0f, outH - (CHAR + 8.0f) * ts, hint, ts, 255, 255, 255);
         SDL_SetRenderDrawBlendMode(r, oldBlend);
         return;
     }
@@ -1178,7 +1382,7 @@ void LevelEditor::render(Scene& scene) {
 
     char zoomBuf[16];
     std::snprintf(zoomBuf, sizeof(zoomBuf), "%.2f", zoom);
-    std::string line2 = "F2 jugar | Ctrl+S guardar | F5 recargar | Ctrl+Z/Y deshacer/rehacer"
+    std::string line2 = "F2 jugar | Shift+F2 jugar desde el cursor | Ctrl+S guardar | F5 recargar | Ctrl+Z/Y deshacer/rehacer"
                         " | Ctrl+D duplicar | Supr borrar";
     std::string line3 = std::string("G grilla: ") + (snap ? "medio tile" : "libre") +
                         " | C solidos: " + (showSolids ? "si" : "no") +

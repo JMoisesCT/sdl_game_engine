@@ -1,4 +1,5 @@
 #pragma once
+#include "../engine/ObjectCatalog.h"
 
 class Scene;
 struct LevelData;
@@ -13,3 +14,7 @@ void buildPlatformer(Scene& scene);
 // Construye el nivel a partir de datos YA cargados. Es la fabrica que usa el editor:
 // reconstruye la escena desde su copia del nivel (lo editado) sin pasar por el disco.
 void buildPlatformerLevel(Scene& scene, const LevelData& level);
+
+// Los type que entiende buildPlatformerLevel, con sus propiedades: el editor los ofrece
+// en "Nuevo" y avisa de los que no reconoce.
+ObjectCatalog platformerObjectCatalog();

@@ -45,7 +45,7 @@ int main(int argc, char* argv[]) {
         scene = std::make_unique<Scene>(renderer);
         editor.close();
         if (which == 1) {
-            editor.open(PLATFORMER_LEVEL_FILE, buildPlatformerLevel);
+            editor.open(PLATFORMER_LEVEL_FILE, buildPlatformerLevel, platformerObjectCatalog());
             editor.buildInto(*scene);
             SDL_SetWindowTitle(window, "Ejemplo 1: Platformer  (1/2/3 cambia, F1 debug, F2 editor)");
         }
