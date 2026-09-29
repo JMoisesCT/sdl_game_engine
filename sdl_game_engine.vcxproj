@@ -44,6 +44,7 @@
     <ClCompile Include="engine\ParallaxBackground.cpp" />
     <ClCompile Include="engine\TilemapCollider.cpp" />
     <ClCompile Include="engine\Scene.cpp" />
+    <ClCompile Include="engine\Screenshot.cpp" />
     <ClCompile Include="engine\SpriteAnimator.cpp" />
     <ClCompile Include="engine\SpriteRenderer.cpp" />
     <ClCompile Include="engine\TextRenderer.cpp" />
@@ -86,6 +87,7 @@
     <ClInclude Include="engine\TilemapCollider.h" />
     <ClInclude Include="engine\RigidBody2D.h" />
     <ClInclude Include="engine\Scene.h" />
+    <ClInclude Include="engine\Screenshot.h" />
     <ClInclude Include="engine\SpriteAnimator.h" />
     <ClInclude Include="engine\SpriteRenderer.h" />
     <ClInclude Include="engine\TextRenderer.h" />

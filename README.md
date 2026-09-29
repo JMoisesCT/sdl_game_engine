@@ -86,6 +86,8 @@ Lo que el motor ya hace hoy:
 **Depuración**
 
 - **`Debugger` conmutable** (`F1`): colliders, zona muerta, primitivas y texto en el mundo.
+- **Capturas** (`F9`): `Screenshot::save(renderer)` guarda el frame en un PNG. Ver
+  [Capturas de pantalla](#capturas-de-pantalla).
 
   ![Platformer con F1: colliders dibujados](docs/screenshots/platformer_debug.png)
 
@@ -137,6 +139,7 @@ sdl_game_engine/
 │   ├── LevelEditor.*       #   editor de niveles (F2) con paneles ImGui
 │   ├── Lifetime.h  Spawner.h
 │   ├── Debugger.*          #   ayudas visuales de depuración
+│   ├── Screenshot.*        #   captura del frame a PNG (F9)
 │   └── third_party/        #   librerías de terceros incluidas (vendored)
 │       ├── nlohmann/json.hpp  # nlohmann/json single-include (MIT), para Tiled JSON
 │       └── imgui/          #   Dear ImGui 1.92.9b (MIT), solo para el editor
@@ -150,7 +153,9 @@ sdl_game_engine/
 │   ├── ninja_adventure/    #   sprites/tileset (top-down) y fuente del HUD (Ui/Font)
 │   ├── kenney_pixelshmup/  #   naves y tileset del pack Kenney Pixel Shmup (shooter)
 │   └── maps/               #   mapas de Tiled (.json/.tmx), niveles (.level.json) y mapa propio (.map)
-├── docs/screenshots/       # Capturas usadas en este README
+├── docs/
+│   ├── screenshots/        #   capturas usadas en este README
+│   └── take_screenshots.ps1 #  las regenera jugando el ejecutable solo
 └── sdl_game_engine.vcxproj # Proyecto de Visual Studio (un solo ejecutable)
 ```
 
@@ -233,6 +238,7 @@ Hay **tres ejemplos** que se cambian en caliente con las teclas numéricas:
 | `3`   | Shooter (shmup vertical con scroll de cámara; naves del pack **Kenney Pixel Shmup**, enemigos por *streaming* desde la capa de objetos de Tiled y **HUD de puntaje**) |
 | `F1`  | Prende/apaga el dibujo de debug (colliders, etc.) |
 | `F2`  | Abre/cierra el **editor de niveles** (solo en el platformer) |
+| `F9`  | Guarda una **captura de pantalla** en `screenshots/` (también dentro del editor) |
 
 Controles dentro de cada ejemplo:
 
@@ -297,6 +303,35 @@ se activan (escribir una "g" en un nombre no apaga la grilla).
 > Studio es la carpeta del proyecto (lo correcto). Si abres el `.exe` directamente desde
 > `x64/Debug`, se guarda en la copia de `assets/` que hay ahí y la próxima compilación la
 > sobrescribe. El log muestra la ruta completa de cada guardado.
+
+### Capturas de pantalla
+
+- **Una captura suelta**: pulsa `F9` en cualquier momento, jugando o editando. Se guarda el
+  frame tal cual, a resolución completa y con los paneles del editor incluidos, en
+  `screenshots/captura_AAAAMMDD_HHMMSS_mmm.png`. La carpeta se crea sola dentro del directorio
+  de trabajo (el del proyecto, si ejecutas desde Visual Studio), está en el `.gitignore` y el
+  log muestra la ruta completa. En tu propio `main` es una línea, con todo ya dibujado y antes
+  de `SDL_RenderPresent`:
+
+  ```cpp
+  if (Input::wasPressed(Key::F9)) Screenshot::save(renderer);
+  ```
+
+  (No es `F12` porque, con el depurador de Visual Studio conectado, Windows usa esa tecla
+  para detener el programa.)
+
+- **Regenerar las capturas de este README**: con el juego compilado, desde la carpeta del
+  proyecto:
+
+  ```
+  powershell -ExecutionPolicy Bypass -File docs\take_screenshots.ps1
+  ```
+
+  El script abre el juego, recorre los tres ejemplos y el editor pulsando las teclas, y deja
+  las imágenes en `docs/screenshots/`. Tarda unos 20 segundos: **no toques el teclado ni el
+  ratón** mientras corre. Nunca guarda el nivel y avisa si el `.level.json` cambió. Opciones:
+  `-Config Release` y `-EditorRow N` (qué fila de la lista "Objetos" seleccionar para la
+  captura del editor).
 
 ---
 

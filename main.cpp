@@ -7,6 +7,7 @@
 #include "engine/Debugger.h"
 #include "engine/Input.h"
 #include "engine/LevelEditor.h"
+#include "engine/Screenshot.h"
 
 #include "game/Platformer.h"
 #include "game/TopDown.h"
@@ -117,6 +118,12 @@ int main(int argc, char* argv[]) {
         scene->render();
         Debug::drawColliders(*scene);
         editor.render(*scene); // marcas, grilla y barra del editor (encima de todo)
+
+        // F9: captura de pantalla a screenshots/. Va aqui, con todo ya dibujado (paneles
+        // del editor incluidos) y antes del Present. No se usa F12 porque Windows la
+        // reserva: con el depurador de Visual Studio conectado, F12 detiene el programa.
+        if (Input::wasPressed(Key::F9)) Screenshot::save(renderer);
+
         SDL_RenderPresent(renderer);
     }
 

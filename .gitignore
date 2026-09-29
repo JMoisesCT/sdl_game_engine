@@ -418,3 +418,6 @@ vcpkg_installed/
 # --- Dear ImGui (editor de niveles) ---
 # El editor desactiva imgui.ini; por si acaso, no se sube el estado local de ventanas.
 imgui.ini
+# --- Capturas con F9 (engine/Screenshot) ---
+# Son sueltas y personales; las del README se eligen a mano y van en docs/screenshots/.
+/screenshots/
