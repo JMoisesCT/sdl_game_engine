@@ -67,8 +67,9 @@ public:
     // La fabrica del juego: construye en 'scene' el nivel descrito por 'level'.
     using BuildFn = std::function<void(Scene& scene, const LevelData& level)>;
 
-    // Prepara los paneles (crea el contexto de Dear ImGui). Una sola vez, despues de
-    // crear la ventana y el renderer. Sin esto el editor funciona igual, sin paneles.
+    // Prepara los paneles (crea el contexto de Dear ImGui) y recuerda la ventana, que se
+    // maximiza mientras se edita. Una sola vez, despues de crear la ventana y el renderer.
+    // Sin esto el editor funciona igual, sin paneles y sin cambiar la ventana.
     bool initGui(SDL_Window* window, SDL_Renderer* renderer);
     // Libera ImGui. Llamarla ANTES de destruir el renderer (sus texturas son de el).
     void shutdownGui();
@@ -144,6 +145,16 @@ private:
     // del editor pise la camara.
     void captureCameraSettings(Scene& scene);
 
+    // --- Ventana ---------------------------------------------------------------------
+    // Al editar, la ventana se maximiza (mas espacio para paneles y mundo); al volver a
+    // jugar recupera EXACTAMENTE el tamanio del juego, para que el juego se vea igual.
+    void growWindow();
+    void restoreWindow();
+    // Escala de los textos del editor dibujados con SDL_RenderDebugText: entera, para
+    // que la fuente de 8x8 no se deforme (pantalla al 150% -> x2).
+    float textScale() const;
+    float barHeight() const;
+
     std::string path;       // .level.json abierto
     BuildFn     build;
     LevelData   level;      // EL MODELO: lo que se edita y se guarda
@@ -170,6 +181,14 @@ private:
     float messageTime = 0.0f;
 
     bool pendingRebuild = false; // reconstruir cuando no haya un campo en edicion
+
+    // Ventana (la da initGui). Tamanio del JUEGO guardado al entrar a editar.
+    SDL_Window* window = nullptr;
+    float uiScale = 1.0f;        // escala de la pantalla (Windows al 150% -> 1.5)
+    int  gameW = 0, gameH = 0;           // tamanio de la ventana del juego (logico)
+    int  gamePixelW = 0, gamePixelH = 0; // lo mismo en pixeles (para la previsualizacion)
+    bool gameWasResizable = false, gameWasMaximized = false;
+    bool windowGrown = false;
 
     // Paneles (Dear ImGui).
     bool guiReady = false;       // initGui ya corrio

@@ -195,7 +195,9 @@ Controles dentro de cada ejemplo:
 ### Editor de niveles (`F2`)
 
 `F2` funciona como Stop/Play de Unity: al entrar, el nivel vuelve a su estado inicial y se
-congela (no hay física ni animación); al salir, se juega con lo editado. Edita los **objetos**
+congela (no hay física ni animación); al salir, se juega con lo editado. Mientras editas, la
+ventana se **maximiza** (puedes cambiarle el tamaño a mano) y los textos del editor se
+agrandan según la escala de tu pantalla; al volver a jugar, la ventana recupera su tamaño. Edita los **objetos**
 del nivel (jugador, frutas, trampas, checkpoint, meta); el terreno se edita en Tiled.
 
 | Control | Acción |

@@ -25,7 +25,6 @@ namespace {
     const float ZOOM_STEP        = 1.15f; // factor por muesca de la rueda
     const float ZOOM_MIN = 0.25f, ZOOM_MAX = 4.0f;
     const float MESSAGE_SECONDS  = 3.0f;
-    const float BAR_H            = 56.0f; // alto de la barra de estado (abajo)
     const float CHAR             = (float)SDL_DEBUG_TEXT_FONT_CHARACTER_SIZE; // 8 px
     const float SIDE_PANEL_W     = 360.0f; // ancho de los paneles de la derecha
 
@@ -84,13 +83,13 @@ namespace {
         SDL_SetRenderScale(r, oldX, oldY);
     }
 
-    // Texto pequeno con un fondo oscuro detras, para que se lea sobre cualquier cosa.
-    void label(SDL_Renderer* r, float x, float y, const std::string& s,
+    // Texto con un fondo oscuro detras, para que se lea sobre cualquier cosa.
+    void label(SDL_Renderer* r, float x, float y, const std::string& s, float scale,
                Uint8 cr, Uint8 cg, Uint8 cb) {
-        SDL_FRect bg{ x - 2.0f, y - 2.0f, s.size() * CHAR + 4.0f, CHAR + 4.0f };
+        SDL_FRect bg{ x - 2.0f, y - 2.0f, s.size() * CHAR * scale + 4.0f, CHAR * scale + 4.0f };
         SDL_SetRenderDrawColor(r, 0, 0, 0, 170);
         SDL_RenderFillRect(r, &bg);
-        text(r, x, y, s, 1.0f, cr, cg, cb);
+        text(r, x, y, s, scale, cr, cg, cb);
     }
 
     // Rectangulo en coordenadas de MUNDO, centrado en (cx,cy).
@@ -105,7 +104,7 @@ namespace {
 
 // --- Paneles: inicio y fin ------------------------------------------------------------
 
-bool LevelEditor::initGui(SDL_Window* window, SDL_Renderer* renderer) {
+bool LevelEditor::initGui(SDL_Window* window_, SDL_Renderer* renderer) {
     if (guiReady) return true;
 
     IMGUI_CHECKVERSION();
@@ -115,15 +114,26 @@ bool LevelEditor::initGui(SDL_Window* window, SDL_Renderer* renderer) {
     io.IniFilename = nullptr;
     ImGui::StyleColorsDark();
 
-    if (!ImGui_ImplSDL3_InitForSDLRenderer(window, renderer)) {
+    // La ventana del juego no se escala con la pantalla: con Windows al 150%, 13 px de
+    // texto se ven diminutos. Los paneles se agrandan segun la escala de la pantalla.
+    window = window_;
+    uiScale = SDL_GetWindowDisplayScale(window);
+    if (uiScale < 1.0f) uiScale = 1.0f;
+    ImGuiStyle& style = ImGui::GetStyle();
+    style.ScaleAllSizes(uiScale);
+    style.FontScaleDpi = uiScale;
+
+    if (!ImGui_ImplSDL3_InitForSDLRenderer(window_, renderer)) {
         SDL_Log("LevelEditor: no se pudo iniciar ImGui (SDL3); el editor queda sin paneles.");
         ImGui::DestroyContext();
+        window = nullptr;
         return false;
     }
     if (!ImGui_ImplSDLRenderer3_Init(renderer)) {
         SDL_Log("LevelEditor: no se pudo iniciar ImGui (renderer); el editor queda sin paneles.");
         ImGui_ImplSDL3_Shutdown();
         ImGui::DestroyContext();
+        window = nullptr;
         return false;
     }
     guiReady = true;
@@ -163,6 +173,7 @@ bool LevelEditor::open(const std::string& levelPath, BuildFn buildFn) {
 }
 
 void LevelEditor::close() {
+    if (windowGrown) restoreWindow();
     if (levelOpen && dirty)
         SDL_Log("LevelEditor: se descartan los cambios sin guardar de '%s'.", path.c_str());
     path.clear();
@@ -215,8 +226,12 @@ void LevelEditor::update(Scene& scene, float dt) {
                 viewZoom = cam->getZoom();
             }
             editing = true;
+            growWindow();
         } else {
             editing = false;
+            // ANTES de reconstruir: la fabrica del juego lee el tamanio de la pantalla
+            // (p. ej. para centrar el HUD).
+            restoreWindow();
         }
         dragging = panning = false;
         pendingRebuild = false;
@@ -304,7 +319,7 @@ void LevelEditor::update(Scene& scene, float dt) {
     // --- Seleccion y arrastre ----------------------------------------------------
     int outW = 0, outH = 0;
     SDL_GetCurrentRenderOutputSize(scene.getRenderer(), &outW, &outH);
-    bool overBar = my >= outH - BAR_H;
+    bool overBar = my >= outH - barHeight();
 
     float wx, wy;
     screenToWorld(scene, mx, my, wx, wy);
@@ -563,7 +578,7 @@ void LevelEditor::showMessage(const std::string& textToShow) {
 
 void LevelEditor::panelObjects(Scene& scene, const TilemapRenderer* map) {
     ImGui::SetNextWindowPos(ImVec2(10.0f, 10.0f), ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowSize(ImVec2(240.0f, 420.0f), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(240.0f * uiScale, 420.0f * uiScale), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("Objetos")) { ImGui::End(); return; }
 
     if (ImGui::Button("Nuevo")) ImGui::OpenPopup("nuevo");
@@ -590,7 +605,7 @@ void LevelEditor::panelObjects(Scene& scene, const TilemapRenderer* map) {
         }
         ImGui::Separator();
         ImGui::TextDisabled("Otro tipo");
-        ImGui::SetNextItemWidth(140.0f);
+        ImGui::SetNextItemWidth(140.0f * uiScale);
         ImGui::InputText("##otro", &newType);
         ImGui::SameLine();
         ImGui::BeginDisabled(newType.empty());
@@ -611,6 +626,8 @@ void LevelEditor::panelObjects(Scene& scene, const TilemapRenderer* map) {
                                 (o.type.empty() ? "(sin type)" : o.type);
         if (!o.name.empty()) itemLabel += "  (" + o.name + ")";
 
+        // "###item": el id del widget no depende del texto (que cambia con el type).
+        itemLabel += "###item";
         ImGui::PushID(o.id);
         if (ImGui::Selectable(itemLabel.c_str(), o.id == selectedId,
                               ImGuiSelectableFlags_AllowDoubleClick)) {
@@ -629,8 +646,9 @@ void LevelEditor::panelObjects(Scene& scene, const TilemapRenderer* map) {
 void LevelEditor::panelInspector(Scene& scene, const TilemapRenderer* map) {
     int outW = 0, outH = 0;
     SDL_GetCurrentRenderOutputSize(scene.getRenderer(), &outW, &outH);
-    ImGui::SetNextWindowPos(ImVec2(outW - SIDE_PANEL_W - 10.0f, 10.0f), ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowSize(ImVec2(SIDE_PANEL_W, 350.0f), ImGuiCond_FirstUseEver);
+    float panelW = SIDE_PANEL_W * uiScale;
+    ImGui::SetNextWindowPos(ImVec2(outW - panelW - 10.0f, 10.0f), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(panelW, 350.0f * uiScale), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("Inspector")) { ImGui::End(); return; }
 
     // Se busca DESPUES del panel de objetos: si ahi se creo o duplico algo, el vector
@@ -690,7 +708,7 @@ void LevelEditor::panelInspector(Scene& scene, const TilemapRenderer* map) {
 
     // Agregar una propiedad nueva (texto o numero).
     ImGui::Spacing();
-    ImGui::SetNextItemWidth(120.0f);
+    ImGui::SetNextItemWidth(120.0f * uiScale);
     ImGui::InputText("##nuevaProp", &newPropKey);
     ImGui::SameLine();
     if (ImGui::RadioButton("texto", !newPropIsNumber)) newPropIsNumber = false;
@@ -711,8 +729,10 @@ void LevelEditor::panelInspector(Scene& scene, const TilemapRenderer* map) {
 
 void LevelEditor::panelCamera() {
     ImGuiIO& io = ImGui::GetIO();
-    ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x - SIDE_PANEL_W - 10.0f, 370.0f), ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowSize(ImVec2(SIDE_PANEL_W, 280.0f), ImGuiCond_FirstUseEver);
+    float panelW = SIDE_PANEL_W * uiScale;
+    ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x - panelW - 10.0f, 20.0f + 350.0f * uiScale),
+                            ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(panelW, 280.0f * uiScale), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("Camara")) { ImGui::End(); return; }
 
     if (camSettings.empty()) {
@@ -736,10 +756,13 @@ void LevelEditor::panelCamera() {
         bool inPixels = (key == "deadZoneWidth" || key == "deadZoneHeight" || key == "lookAhead");
         float speed = isZoom ? 0.01f : inPixels ? 1.0f : 0.05f;
         float minValue = isZoom ? 0.1f : 0.0f; // zoom 0 no se puede dibujar
-        std::string fieldLabel = key + (inLevel ? " *" : "");
+        // "###valor": el id del campo NO puede depender del texto. Si dependiera, al
+        // pasar de "zoom" a "zoom *" (el primer cambio lo vuelve del nivel) ImGui lo
+        // tomaria por otro campo y soltaria el arrastre a medio camino.
+        std::string fieldLabel = key + (inLevel ? " *" : "") + "###valor";
 
         ImGui::PushID(key.c_str());
-        ImGui::SetNextItemWidth(110.0f);
+        ImGui::SetNextItemWidth(110.0f * uiScale);
         float v = it->second;
         if (ImGui::DragFloat(fieldLabel.c_str(), &v, speed, minValue, 10000.0f, "%.2f")) {
             // Editar un valor lo vuelve explicito en el nivel. No hace falta
@@ -775,8 +798,9 @@ void LevelEditor::drawCameraPreview(Scene& scene) {
     if (!target) return;
 
     SDL_Renderer* r = scene.getRenderer();
-    int outW = 0, outH = 0;
-    SDL_GetCurrentRenderOutputSize(r, &outW, &outH);
+    // La vista del jugador es la de la ventana del JUEGO (la de antes de maximizar).
+    int outW = gamePixelW, outH = gamePixelH;
+    if (outW <= 0 || outH <= 0) SDL_GetCurrentRenderOutputSize(r, &outW, &outH);
 
     auto get = [this](const char* key, float def) {
         auto it = camSettings.find(key);
@@ -796,8 +820,9 @@ void LevelEditor::drawCameraPreview(Scene& scene) {
     // juego ocupa toda la pantalla y su esquina queda fuera.
     float lx, ly;
     worldToScreen(scene, cx - deadW * 0.5f, cy - deadH * 0.5f, lx, ly);
-    label(r, lx, ly - 24.0f, "Camara del juego al empezar:", 80, 170, 255);
-    label(r, lx, ly - 12.0f, "zona muerta (azul), vista (verde)", 80, 170, 255);
+    float ts = textScale(), lineH = (CHAR + 4.0f) * ts;
+    label(r, lx, ly - 2.0f * lineH, "Camara del juego al empezar:", ts, 80, 170, 255);
+    label(r, lx, ly - lineH, "zona muerta (azul), vista (verde)", ts, 80, 170, 255);
 }
 
 void LevelEditor::render(Scene& scene) {
@@ -814,8 +839,9 @@ void LevelEditor::render(Scene& scene) {
 
     if (!editing) {
         // Jugando: solo un recordatorio en la esquina.
-        label(r, 8.0f, outH - 16.0f,
-              dirty ? "F2: editor  (hay cambios SIN GUARDAR)" : "F2: editor", 255, 255, 255);
+        float ts = textScale();
+        label(r, 8.0f, outH - (CHAR + 8.0f) * ts,
+              dirty ? "F2: editor  (hay cambios SIN GUARDAR)" : "F2: editor", ts, 255, 255, 255);
         SDL_SetRenderDrawBlendMode(r, oldBlend);
         return;
     }
@@ -915,13 +941,18 @@ void LevelEditor::render(Scene& scene) {
         SDL_RenderLine(r, px, py - 4.0f, px, py + 4.0f);
 
         std::string name = o.type.empty() ? "(sin type)" : o.type;
-        if (selected) label(r, sl, st - 12.0f, name, 255, 220, 0);
-        else          label(r, sl, st - 12.0f, name, 255, 255, 255);
+        float ts = textScale(), ly = st - (CHAR + 4.0f) * ts;
+        if (selected) label(r, sl, ly, name, ts, 255, 220, 0);
+        else          label(r, sl, ly, name, ts, 255, 255, 255);
     }
 
     // --- 4) Barra de estado ---------------------------------------------------------
-    float barY = outH - BAR_H;
-    SDL_FRect bar{ 0.0f, barY, (float)outW, BAR_H };
+    // Una linea grande (que hay seleccionado) y tres chicas (atajos y raton). Todo en
+    // escala entera (textScale): la fuente de 8x8 se ve nitida.
+    float ts = textScale();
+    float big = ts + 1.0f;
+    float barY = outH - barHeight();
+    SDL_FRect bar{ 0.0f, barY, (float)outW, barHeight() };
     SDL_SetRenderDrawColor(r, 0, 0, 0, 190);
     SDL_RenderFillRect(r, &bar);
 
@@ -934,28 +965,33 @@ void LevelEditor::render(Scene& scene) {
     } else {
         line1 += "(clic sobre un objeto para elegirlo)";
     }
-    if (dirty) text(r, 10.0f, barY + 6.0f, line1, 2.0f, 255, 200, 80); // naranja: pendiente
-    else       text(r, 10.0f, barY + 6.0f, line1, 2.0f, 255, 255, 255);
+    float y = barY + 6.0f;
+    if (dirty) text(r, 10.0f, y, line1, big, 255, 200, 80); // naranja: pendiente
+    else       text(r, 10.0f, y, line1, big, 255, 255, 255);
+    y += CHAR * big + 6.0f;
 
     char zoomBuf[16];
     std::snprintf(zoomBuf, sizeof(zoomBuf), "%.2f", zoom);
-    std::string line2 = std::string("F2 jugar | Ctrl+S guardar | Ctrl+D duplicar | Supr borrar | ") +
-                        "F5 recargar | G grilla: " + (snap ? "medio tile" : "libre") +
+    std::string line2 = "F2 jugar | Ctrl+S guardar | F5 recargar | Ctrl+D duplicar | Supr borrar";
+    std::string line3 = std::string("G grilla: ") + (snap ? "medio tile" : "libre") +
                         " | C solidos: " + (showSolids ? "si" : "no") +
                         " | Clic der./flechas: vista | Rueda: zoom x" + zoomBuf;
-    text(r, 10.0f, barY + 28.0f, line2, 1.0f, 190, 190, 190);
+    text(r, 10.0f, y, line2, ts, 190, 190, 190);
+    y += CHAR * ts + 4.0f;
+    text(r, 10.0f, y, line3, ts, 190, 190, 190);
+    y += CHAR * ts + 4.0f;
 
     float cwx, cwy, cmx, cmy;
     screenToWorld(scene, Input::mouseX(), Input::mouseY(), cwx, cwy);
     toMap(map, cwx, cwy, cmx, cmy);
-    std::string line3 = "Raton: mapa (" + num(std::floor(cmx)) + ", " + num(std::floor(cmy)) + ")";
+    std::string line4 = "Raton: mapa (" + num(std::floor(cmx)) + ", " + num(std::floor(cmy)) + ")";
     if (map) {
         int col, row;
         map->worldToCell(cwx, cwy, col, row);
-        line3 += "  celda (" + std::to_string(col) + ", " + std::to_string(row) + ")";
+        line4 += "  celda (" + std::to_string(col) + ", " + std::to_string(row) + ")";
     }
-    if (messageTime > 0.0f) line3 += "     >> " + message;
-    text(r, 10.0f, barY + 42.0f, line3, 1.0f, 190, 190, 190);
+    if (messageTime > 0.0f) line4 += "     >> " + message;
+    text(r, 10.0f, y, line4, ts, 190, 190, 190);
 
     SDL_SetRenderDrawBlendMode(r, oldBlend);
 
@@ -965,4 +1001,47 @@ void LevelEditor::render(Scene& scene) {
         ImGui_ImplSDLRenderer3_RenderDrawData(ImGui::GetDrawData(), r);
         guiFrame = false;
     }
+}
+
+// --- Ventana y escala ----------------------------------------------------------------
+
+float LevelEditor::textScale() const {
+    // Redondeada: 1.5 -> 2. Un 8x8 escalado a 1.5 tendria pixeles de distinto tamanio.
+    return std::max(1.0f, std::round(uiScale));
+}
+
+float LevelEditor::barHeight() const {
+    float ts = textScale();
+    return 6.0f + CHAR * (ts + 1.0f) + 6.0f + 3.0f * (CHAR * ts + 4.0f) + 4.0f;
+}
+
+void LevelEditor::growWindow() {
+    if (!window || windowGrown) return;
+
+    // Se guarda TODO lo necesario para dejar la ventana exactamente como estaba.
+    SDL_GetWindowSize(window, &gameW, &gameH);
+    SDL_GetWindowSizeInPixels(window, &gamePixelW, &gamePixelH);
+    SDL_WindowFlags flags = SDL_GetWindowFlags(window);
+    gameWasResizable = (flags & SDL_WINDOW_RESIZABLE) != 0;
+    gameWasMaximized = (flags & SDL_WINDOW_MAXIMIZED) != 0;
+
+    // Maximizar exige que la ventana sea redimensionable. Mientras se edita tambien se
+    // puede cambiar de tamanio a mano.
+    SDL_SetWindowResizable(window, true);
+    SDL_MaximizeWindow(window);
+    // En Windows maximizar es asincrono: se espera a que termine, para que la escena
+    // que se construye enseguida ya vea el tamanio nuevo.
+    SDL_SyncWindow(window);
+    windowGrown = true;
+}
+
+void LevelEditor::restoreWindow() {
+    if (!window || !windowGrown) return;
+    if (!gameWasMaximized) {
+        SDL_RestoreWindow(window);
+        SDL_SetWindowSize(window, gameW, gameH);
+    }
+    SDL_SetWindowResizable(window, gameWasResizable);
+    SDL_SyncWindow(window);
+    windowGrown = false;
 }
