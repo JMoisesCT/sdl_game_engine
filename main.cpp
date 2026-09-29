@@ -77,7 +77,8 @@ int main(int argc, char* argv[]) {
 
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
-            if (event.type == SDL_EVENT_QUIT) running = false;
+            // Cerrar la ventana con cambios sin guardar en el editor: primero se pregunta.
+            if (event.type == SDL_EVENT_QUIT && editor.confirmDiscard("salir")) running = false;
             Input::processEvent(event); // la rueda del raton solo llega como evento
             editor.processEvent(event); // teclas y texto para los paneles del editor
         }
@@ -96,7 +97,8 @@ int main(int argc, char* argv[]) {
             if (Input::wasPressed(Key::Num1)) sel = 1;
             if (Input::wasPressed(Key::Num2)) sel = 2;
             if (Input::wasPressed(Key::Num3)) sel = 3;
-            if (sel != 0 && sel != current) loadExample(sel);
+            if (sel != 0 && sel != current && editor.confirmDiscard("cambiar de ejemplo"))
+                loadExample(sel);
         }
 
         // Editor: F2 entra/sale; editando atiende raton y teclas (sin nivel no hace nada).

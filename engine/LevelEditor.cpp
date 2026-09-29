@@ -27,6 +27,8 @@ namespace {
     const float MESSAGE_SECONDS  = 3.0f;
     const float CHAR             = (float)SDL_DEBUG_TEXT_FONT_CHARACTER_SIZE; // 8 px
     const float SIDE_PANEL_W     = 360.0f; // ancho de los paneles de la derecha
+    const size_t MAX_UNDO        = 200;    // pasos de deshacer que se guardan
+    const float MAP_POLL_SECONDS = 0.5f;   // cada cuanto se mira si Tiled guardo el mapa
 
     TilemapRenderer* findMap(Scene& scene) {
         for (const auto& obj : scene.getObjects())
@@ -47,7 +49,8 @@ namespace {
         return nullptr;
     }
 
-    bool ctrlDown() { return Input::isDown(Key::LCtrl) || Input::isDown(Key::RCtrl); }
+    bool ctrlDown()  { return Input::isDown(Key::LCtrl)  || Input::isDown(Key::RCtrl); }
+    bool shiftDown() { return Input::isDown(Key::LShift) || Input::isDown(Key::RShift); }
 
     float zoomOf(Scene& scene) {
         Camera* cam = scene.getActiveCamera();
@@ -169,6 +172,7 @@ bool LevelEditor::open(const std::string& levelPath, BuildFn buildFn) {
     }
     level = std::move(loaded);
     levelOpen = true;
+    resetHistory();
     return true;
 }
 
@@ -185,12 +189,51 @@ void LevelEditor::close() {
     message.clear();
     messageTime = 0.0f;
     camSettings.clear();
+    undoStack.clear();
+    redoStack.clear();
+    committed = LevelData();
+    uncommitted = false;
+    mapTime = mapTimeSeen = 0;
+}
+
+bool LevelEditor::confirmDiscard(const char* action) {
+    if (!levelOpen || !dirty) return true;
+
+    // Cuadro de dialogo nativo (SDL_ShowMessageBox): funciona jugando y editando, sin
+    // depender de los paneles, y bloquea hasta que se responde.
+    const SDL_MessageBoxButtonData buttons[] = {
+        { SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, 1, "Guardar" },
+        { 0,                                       2, "Descartar" },
+        { SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 0, "Cancelar" },
+    };
+    std::string question = "El nivel tiene cambios sin guardar:\n" + path +
+                           "\n\nGuardarlos antes de " + action + "?";
+    SDL_MessageBoxData box{};
+    box.flags = SDL_MESSAGEBOX_WARNING | SDL_MESSAGEBOX_BUTTONS_LEFT_TO_RIGHT;
+    box.window = window;
+    box.title = "Cambios sin guardar";
+    box.message = question.c_str();
+    box.numbuttons = 3;
+    box.buttons = buttons;
+
+    int choice = 0;
+    if (!SDL_ShowMessageBox(&box, &choice)) {
+        // Sin dialogo no se puede preguntar. Se sigue (si no, no se podria ni cerrar la
+        // ventana) y queda en el log que se pierden los cambios.
+        SDL_Log("LevelEditor: no se pudo preguntar (%s); se descartan los cambios.", SDL_GetError());
+        return true;
+    }
+    if (choice == 1) { save(); return !dirty; } // si guardar falla, se cancela
+    return choice == 2;                         // Descartar sigue; Cancelar o cerrar, no
 }
 
 void LevelEditor::buildInto(Scene& scene) {
     rebuildRequested = false;
     dragging = panning = false;
     if (build) build(scene, level);
+    // La fabrica acaba de leer el mapa de disco: esa es la version que se ve.
+    mapTime = mapTimeSeen = mapFileTime();
+    mapPollTimer = MAP_POLL_SECONDS;
     captureCameraSettings(scene); // antes de que la vista del editor pise la camara
     // Editando, la camara de la escena nueva toma la vista del editor desde el primer
     // frame (si no, se veria un frame con la camara del juego en su posicion inicial).
@@ -229,6 +272,7 @@ void LevelEditor::update(Scene& scene, float dt) {
             growWindow();
         } else {
             editing = false;
+            commitNow(); // lo que se estaba escribiendo cuenta como un paso de deshacer
             // ANTES de reconstruir: la fabrica del juego lee el tamanio de la pantalla
             // (p. ej. para centrar el HUD).
             restoreWindow();
@@ -261,6 +305,9 @@ void LevelEditor::update(Scene& scene, float dt) {
     // mientras se escribe en un campo: una "g" en un nombre no debe apagar la grilla.
     if (ctrlDown() && Input::wasPressed(Key::S)) save();
     if (!keysForGui) {
+        // Escribiendo en un campo, Ctrl+Z es de ImGui (deshace el texto del campo).
+        if (ctrlDown() && Input::wasPressed(Key::Z)) { if (shiftDown()) redo(); else undo(); }
+        if (ctrlDown() && Input::wasPressed(Key::Y)) redo();
         if (ctrlDown() && Input::wasPressed(Key::D)) duplicateSelected(map);
         if (Input::wasPressed(Key::Delete)) deleteSelected();
         if (!ctrlDown() && Input::wasPressed(Key::G)) {
@@ -364,6 +411,132 @@ void LevelEditor::update(Scene& scene, float dt) {
         pendingRebuild = false;
         rebuildRequested = true;
     }
+
+    watchMapFile(dt);
+    commitIfIdle();
+}
+
+// --- Deshacer / rehacer --------------------------------------------------------------
+// El modelo son datos, asi que un paso de deshacer es simplemente una COPIA del modelo
+// de antes. Nada de "comandos" con su operacion inversa: para un nivel de pocos
+// objetos, copiar todo es mas simple y no se puede equivocar.
+
+void LevelEditor::beginChange() {
+    if (!uncommitted) {
+        uncommitted = true;
+        gestureSelectedId = selectedId;
+    }
+    dirty = true;
+}
+
+void LevelEditor::commitIfIdle() {
+    // El gesto sigue mientras se arrastra o hay un campo activo (escribiendo, o
+    // arrastrando un valor): todo eso sera UN solo paso de deshacer.
+    if (!uncommitted || dragging) return;
+    if (guiFrame && ImGui::IsAnyItemActive()) return;
+    commitNow();
+}
+
+void LevelEditor::commitNow() {
+    if (!uncommitted) return;
+    undoStack.push_back({ committed, gestureSelectedId, version });
+    if (undoStack.size() > MAX_UNDO) undoStack.erase(undoStack.begin());
+    redoStack.clear(); // un cambio nuevo corta la rama de rehacer
+    committed = level;
+    version = ++lastVersion;
+    uncommitted = false;
+    refreshDirty();
+}
+
+void LevelEditor::undo() {
+    if (dragging) return;
+    commitNow(); // si habia un gesto a medias, primero se anota (y es lo que se deshace)
+    if (undoStack.empty()) { showMessage("Nada que deshacer"); return; }
+
+    redoStack.push_back({ level, selectedId, version });
+    Snapshot s = std::move(undoStack.back());
+    undoStack.pop_back();
+    level = committed = std::move(s.level);
+    version = s.version;
+    selectedId = findObject(s.selectedId) ? s.selectedId : 0;
+    refreshDirty();
+    // La escena puede diferir en cualquier cosa (objetos, types...): se reconstruye.
+    pendingRebuild = false;
+    rebuildRequested = true;
+    showMessage("Deshecho (quedan " + std::to_string(undoStack.size()) + ")");
+}
+
+void LevelEditor::redo() {
+    if (dragging) return;
+    commitNow(); // un gesto nuevo sin anotar ya habria vaciado la pila de rehacer
+    if (redoStack.empty()) { showMessage("Nada que rehacer"); return; }
+
+    undoStack.push_back({ level, selectedId, version });
+    Snapshot s = std::move(redoStack.back());
+    redoStack.pop_back();
+    level = committed = std::move(s.level);
+    version = s.version;
+    selectedId = findObject(s.selectedId) ? s.selectedId : 0;
+    refreshDirty();
+    pendingRebuild = false;
+    rebuildRequested = true;
+    showMessage("Rehecho (quedan " + std::to_string(redoStack.size()) + ")");
+}
+
+void LevelEditor::resetHistory() {
+    undoStack.clear();
+    redoStack.clear();
+    committed = level;
+    uncommitted = false;
+    version = savedVersion = ++lastVersion; // lo que hay en memoria es lo del disco
+    refreshDirty();
+}
+
+// --- Avisos y recarga automatica del mapa ---------------------------------------------
+
+std::string LevelEditor::objectWarning(const TilemapRenderer* map, const TiledObject& o) const {
+    if (!map || map->getMapWidth() <= 0 || map->getMapHeight() <= 0 ||
+        map->getTileWidth() <= 0 || map->getTileHeight() <= 0) return "";
+
+    // Todo en pixeles del MAPA, que es el espacio del archivo: no depende de la escala.
+    float tw = (float)map->getTileWidth(), th = (float)map->getTileHeight();
+    if (o.cx < 0.0f || o.cy < 0.0f ||
+        o.cx >= map->getMapWidth() * tw || o.cy >= map->getMapHeight() * th)
+        return "fuera del mapa";
+    // Se mira solo el CENTRO: los pinchos o una meta tocan el suelo con el borde, y eso
+    // es correcto. Un centro dentro de la pared casi seguro es un error (el jugador
+    // naceria atascado, una fruta quedaria inalcanzable).
+    if (map->isSolidCell((int)std::floor(o.cx / tw), (int)std::floor(o.cy / th)))
+        return "dentro de un tile solido";
+    return "";
+}
+
+int64_t LevelEditor::mapFileTime() const {
+    SDL_PathInfo info;
+    if (level.mapPath.empty() || !SDL_GetPathInfo(level.mapPath.c_str(), &info)) return 0;
+    return (int64_t)info.modify_time;
+}
+
+void LevelEditor::watchMapFile(float dt) {
+    // Se consulta la fecha del archivo cada medio segundo: es barato y no necesita
+    // hilos ni avisos del sistema operativo.
+    mapPollTimer -= dt;
+    if (mapPollTimer > 0.0f) return;
+    mapPollTimer = MAP_POLL_SECONDS;
+
+    int64_t t = mapFileTime();
+    if (t == 0) return;                          // justo ahora no se puede leer: luego
+    if (t == mapTime) { mapTimeSeen = t; return; } // sin cambios
+    // Cambio. Se espera a ver la MISMA fecha en dos consultas seguidas: si Tiled aun
+    // estuviera escribiendo, se leeria un JSON a medias.
+    if (t != mapTimeSeen) { mapTimeSeen = t; return; }
+    // Tampoco en medio de un gesto (arrastrando o escribiendo): se reintenta despues.
+    if (dragging || (guiFrame && ImGui::IsAnyItemActive())) return;
+
+    // Solo el mapa cambia: los objetos (el modelo) quedan como estan. buildInto
+    // actualiza mapTime.
+    showMessage("Mapa recargado (se guardo en Tiled)");
+    rebuildRequested = true;
 }
 
 // --- Consultas y edicion -------------------------------------------------------------
@@ -461,9 +634,9 @@ void LevelEditor::moveSelected(Scene& scene, const TilemapRenderer* map, float w
 void LevelEditor::setObjectPosition(Scene& scene, const TilemapRenderer* map, TiledObject& o,
                                     float mx, float my) {
     if (mx == o.cx && my == o.cy) return;
+    beginChange();
     o.cx = mx;
     o.cy = my;
-    dirty = true;
 
     // La escena esta congelada: basta con mover sus GameObjects, no hace falta
     // reconstruirla. Al volver a jugar (F2) se reconstruye igual desde el modelo.
@@ -518,15 +691,15 @@ void LevelEditor::deleteSelected() {
     auto it = std::find_if(level.objects.begin(), level.objects.end(),
                            [this](const TiledObject& o) { return o.id == selectedId; });
     if (it == level.objects.end()) return;
+    markChanged(true); // ANTES de quitar la seleccion: deshacer vuelve a elegir este objeto
     showMessage("Borrado #" + std::to_string(it->id) + " " + it->type);
     level.objects.erase(it);
     selectedId = 0;
     dragging = false;
-    markChanged(true);
 }
 
 void LevelEditor::markChanged(bool needsRebuild) {
-    dirty = true;
+    beginChange();
     if (needsRebuild) pendingRebuild = true;
 }
 
@@ -539,11 +712,15 @@ void LevelEditor::applyView(Scene& scene) const {
 }
 
 void LevelEditor::save() {
+    // Lo que se estaba escribiendo se anota como un paso: asi "lo guardado" es una
+    // version de la historia, y deshacer hasta ella vuelve a quitar el *SIN GUARDAR.
+    commitNow();
     if (!saveLevel(path, level)) {
         showMessage("ERROR al guardar (ver el log)");
         return;
     }
-    dirty = false;
+    savedVersion = version;
+    refreshDirty();
     // La ruta es relativa al directorio de trabajo, que no siempre es la carpeta del
     // proyecto: se deja en el log la ruta completa para saber donde quedo.
     char* cwd = SDL_GetCurrentDirectory(); // termina en separador
@@ -558,7 +735,10 @@ void LevelEditor::reload() {
     // no hay cambios sin guardar, para no tirarlos sin avisar.
     if (!dirty) {
         LevelData fresh;
-        if (loadLevel(path, fresh)) level = std::move(fresh);
+        if (loadLevel(path, fresh)) {
+            level = std::move(fresh);
+            resetHistory(); // la historia era del modelo anterior (pudo cambiar a mano)
+        }
         showMessage("Recargados el mapa y el nivel");
     } else {
         showMessage("Recargado el mapa (el nivel tiene cambios sin guardar)");
@@ -580,6 +760,14 @@ void LevelEditor::panelObjects(Scene& scene, const TilemapRenderer* map) {
     ImGui::SetNextWindowPos(ImVec2(10.0f, 10.0f), ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowSize(ImVec2(240.0f * uiScale, 420.0f * uiScale), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("Objetos")) { ImGui::End(); return; }
+
+    ImGui::BeginDisabled(undoStack.empty() && !uncommitted);
+    if (ImGui::Button("Deshacer")) undo();
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    ImGui::BeginDisabled(redoStack.empty());
+    if (ImGui::Button("Rehacer")) redo();
+    ImGui::EndDisabled();
 
     if (ImGui::Button("Nuevo")) ImGui::OpenPopup("nuevo");
     ImGui::SameLine();
@@ -622,15 +810,19 @@ void LevelEditor::panelObjects(Scene& scene, const TilemapRenderer* map) {
     ImGui::TextDisabled("Doble clic: centrar la vista");
     ImGui::BeginChild("lista");
     for (const TiledObject& o : level.objects) {
-        std::string itemLabel = "#" + std::to_string(o.id) + "  " +
-                                (o.type.empty() ? "(sin type)" : o.type);
+        bool warn = !objectWarning(map, o).empty();
+        std::string itemLabel = std::string(warn ? "! " : "") + "#" + std::to_string(o.id) +
+                                "  " + (o.type.empty() ? "(sin type)" : o.type);
         if (!o.name.empty()) itemLabel += "  (" + o.name + ")";
 
         // "###item": el id del widget no depende del texto (que cambia con el type).
         itemLabel += "###item";
         ImGui::PushID(o.id);
-        if (ImGui::Selectable(itemLabel.c_str(), o.id == selectedId,
-                              ImGuiSelectableFlags_AllowDoubleClick)) {
+        if (warn) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.6f, 0.15f, 1.0f));
+        bool clicked = ImGui::Selectable(itemLabel.c_str(), o.id == selectedId,
+                                         ImGuiSelectableFlags_AllowDoubleClick);
+        if (warn) ImGui::PopStyleColor();
+        if (clicked) {
             selectedId = o.id;
             if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
                 toWorld(map, o, viewX, viewY);
@@ -663,6 +855,9 @@ void LevelEditor::panelInspector(Scene& scene, const TilemapRenderer* map) {
     }
 
     ImGui::Text("id: %d", o->id);
+    std::string warning = objectWarning(map, *o);
+    if (!warning.empty())
+        ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.15f, 1.0f), "Aviso: centro %s", warning.c_str());
 
     // type: lo interpreta la fabrica del juego -> reconstruir al terminar de escribir.
     if (ImGui::InputText("type", &o->type)) markChanged(true);
@@ -914,8 +1109,12 @@ void LevelEditor::render(Scene& scene) {
     if (showCameraPreview) drawCameraPreview(scene);
 
     // --- 3) Objetos del nivel: area de seleccion, punto y etiqueta -----------------
+    // Amarillo = seleccionado, naranja = con aviso, celeste = el resto.
+    int warnings = 0;
     for (const TiledObject& o : level.objects) {
         bool selected = (o.id == selectedId);
+        std::string warning = objectWarning(map, o);
+        if (!warning.empty()) ++warnings;
 
         float l, t, rr, b, sl, st, sr, sb;
         pickRect(scene, map, o, l, t, rr, b);
@@ -927,6 +1126,9 @@ void LevelEditor::render(Scene& scene) {
             SDL_RenderRect(r, &box);
             SDL_FRect outer{ box.x - 1.0f, box.y - 1.0f, box.w + 2.0f, box.h + 2.0f };
             SDL_RenderRect(r, &outer);
+        } else if (!warning.empty()) {
+            SDL_SetRenderDrawColor(r, 255, 150, 40, 230);
+            SDL_RenderRect(r, &box);
         } else {
             SDL_SetRenderDrawColor(r, 0, 200, 255, 170);
             SDL_RenderRect(r, &box);
@@ -941,9 +1143,11 @@ void LevelEditor::render(Scene& scene) {
         SDL_RenderLine(r, px, py - 4.0f, px, py + 4.0f);
 
         std::string name = o.type.empty() ? "(sin type)" : o.type;
+        if (!warning.empty()) name += "  ! " + warning;
         float ts = textScale(), ly = st - (CHAR + 4.0f) * ts;
-        if (selected) label(r, sl, ly, name, ts, 255, 220, 0);
-        else          label(r, sl, ly, name, ts, 255, 255, 255);
+        if (selected)              label(r, sl, ly, name, ts, 255, 220, 0);
+        else if (!warning.empty()) label(r, sl, ly, name, ts, 255, 150, 40);
+        else                       label(r, sl, ly, name, ts, 255, 255, 255);
     }
 
     // --- 4) Barra de estado ---------------------------------------------------------
@@ -957,6 +1161,8 @@ void LevelEditor::render(Scene& scene) {
     SDL_RenderFillRect(r, &bar);
 
     std::string line1 = dirty ? "EDITOR *SIN GUARDAR  " : "EDITOR  ";
+    if (warnings > 0)
+        line1 += "[" + std::to_string(warnings) + (warnings == 1 ? " aviso]  " : " avisos]  ");
     if (const TiledObject* o = findObject(selectedId)) {
         line1 += "#" + std::to_string(o->id) + " " + o->type +
                  "  x=" + num(o->cx) + " y=" + num(o->cy);
@@ -972,7 +1178,8 @@ void LevelEditor::render(Scene& scene) {
 
     char zoomBuf[16];
     std::snprintf(zoomBuf, sizeof(zoomBuf), "%.2f", zoom);
-    std::string line2 = "F2 jugar | Ctrl+S guardar | F5 recargar | Ctrl+D duplicar | Supr borrar";
+    std::string line2 = "F2 jugar | Ctrl+S guardar | F5 recargar | Ctrl+Z/Y deshacer/rehacer"
+                        " | Ctrl+D duplicar | Supr borrar";
     std::string line3 = std::string("G grilla: ") + (snap ? "medio tile" : "libre") +
                         " | C solidos: " + (showSolids ? "si" : "no") +
                         " | Clic der./flechas: vista | Rueda: zoom x" + zoomBuf;

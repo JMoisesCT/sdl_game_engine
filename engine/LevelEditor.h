@@ -1,7 +1,9 @@
 #pragma once
+#include <cstdint>
 #include <functional>
 #include <map>
 #include <string>
+#include <vector>
 
 #include "LevelData.h"
 
@@ -24,6 +26,7 @@ union  SDL_Event;
 //     editor.open("assets/maps/nivel.level.json", buildMiNivel);
 //     editor.buildInto(*scene);
 //     // ...dentro de while (SDL_PollEvent(&e)):
+//     if (e.type == SDL_EVENT_QUIT && editor.confirmDiscard("salir")) running = false;
 //     editor.processEvent(e);
 //     // ...cada frame, despues de Input::update():
 //     editor.update(*scene, dt);                           // F2, raton, Ctrl+S...
@@ -54,6 +57,21 @@ union  SDL_Event;
 //   rueda                zoom (hacia el cursor)        F5   recargar (mapa y nivel)
 //   Ctrl+S               guardar el .level.json        Esc  quitar la seleccion
 //   Ctrl+D               duplicar el seleccionado      Supr borrar el seleccionado
+//   Ctrl+Z               deshacer                      Ctrl+Y / Ctrl+Shift+Z  rehacer
+//
+// DESHACER: como el modelo son DATOS, cada paso guarda una copia entera del LevelData
+// (unos pocos KB). Un paso es un GESTO completo: todo un arrastre, todo lo escrito en un
+// campo hasta salir de el. Deshacer reconstruye la escena desde la copia.
+//
+// AVISOS: un objeto cuyo centro cae fuera del mapa o dentro de un tile solido se marca
+// en naranja (en el mundo, en la lista y en el Inspector). No se corrige solo: a veces es
+// a proposito (una zona que empieza fuera de la pantalla).
+//
+// RECARGA AUTOMATICA: editando, si el mapa de Tiled cambia en disco (se guardo en Tiled),
+// la escena se reconstruye sola con el mapa nuevo. Los objetos no se tocan.
+//
+// CAMBIOS SIN GUARDAR: antes de cerrar la ventana o cambiar de ejemplo, main llama a
+// confirmDiscard(), que pregunta Guardar / Descartar / Cancelar.
 //
 // PANELES (Dear ImGui, solo en edicion): "Objetos" (lista, Nuevo/Duplicar/Borrar),
 // "Inspector" (type, nombre, posicion, tamanio y propiedades del seleccionado) y
@@ -99,6 +117,13 @@ public:
     bool isDirty() const   { return dirty; }   // hay cambios sin guardar
     const LevelData& getLevel() const { return level; }
 
+    // Antes de algo que tiraria los cambios sin guardar (cerrar la ventana, cambiar de
+    // ejemplo): si los hay, pregunta con un cuadro de dialogo Guardar / Descartar /
+    // Cancelar. Devuelve true si se puede seguir (no habia cambios, se guardaron o se
+    // descartaron) y false si hay que cancelar (o si guardar fallo). 'action' completa
+    // la pregunta: "salir", "cambiar de ejemplo"...
+    bool confirmDiscard(const char* action);
+
     // Una vez por frame, despues de Input::update() y ANTES de scene->update().
     void update(Scene& scene, float dt);
     // Una vez por frame, DESPUES de scene->render(): dibuja marcas, grilla y la barra.
@@ -134,6 +159,33 @@ private:
     // tamanio, propiedades, objetos nuevos o borrados), se pide la reconstruccion para
     // cuando el usuario termine de editar el campo activo.
     void markChanged(bool needsRebuild);
+    // Lo que TODO cambio del modelo hace antes de tocarlo: si empieza un gesto, recuerda
+    // la seleccion de ese momento. Lo llaman markChanged y setObjectPosition.
+    void beginChange();
+
+    // --- Deshacer / rehacer ---------------------------------------------------------
+    // Un paso de la historia: el modelo entero, el objeto seleccionado y la version (para
+    // saber si coincide con lo guardado en disco).
+    struct Snapshot {
+        LevelData level;
+        int selectedId = 0;
+        int version = 0;
+    };
+    // Si hay un cambio sin anotar y el gesto termino (sin arrastre ni campo activo), la
+    // copia anterior pasa a la pila de deshacer. Se llama al final de cada update.
+    void commitIfIdle();
+    void commitNow();          // anota ya, aunque el gesto no haya terminado (al guardar)
+    void undo();
+    void redo();
+    void resetHistory();       // al abrir o recargar desde disco: historia vacia
+    void refreshDirty() { dirty = uncommitted || version != savedVersion; }
+
+    // --- Avisos y recarga del mapa ----------------------------------------------------
+    // "" si el objeto esta bien; si no, el problema en pocas palabras.
+    std::string objectWarning(const TilemapRenderer* map, const TiledObject& o) const;
+    // Fecha de modificacion del mapa de Tiled en disco (0 si no se puede leer).
+    int64_t mapFileTime() const;
+    void watchMapFile(float dt);
 
     // --- Paneles -------------------------------------------------------------------
     void panelObjects(Scene& scene, const TilemapRenderer* map);
@@ -181,6 +233,22 @@ private:
     float messageTime = 0.0f;
 
     bool pendingRebuild = false; // reconstruir cuando no haya un campo en edicion
+
+    // Historia. 'committed' es el modelo tal como quedo tras el ultimo paso anotado; el
+    // modelo vivo (level) puede ir por delante mientras dura un gesto (uncommitted).
+    std::vector<Snapshot> undoStack, redoStack;
+    LevelData committed;
+    bool uncommitted = false;
+    int  gestureSelectedId = 0; // seleccion al EMPEZAR el gesto (deshacer la vuelve a elegir)
+    int  version = 0;        // version de 'committed' (cada paso anotado recibe una nueva)
+    int  lastVersion = 0;    // la ultima repartida (las versiones no se repiten)
+    int  savedVersion = 0;   // la version que esta en disco (-1: ninguna de la historia)
+
+    // Recarga automatica del mapa: fecha del archivo al construir la escena, y un
+    // cambio visto que espera a que el archivo deje de cambiar antes de releerlo.
+    int64_t mapTime = 0;
+    int64_t mapTimeSeen = 0;
+    float   mapPollTimer = 0.0f;
 
     // Ventana (la da initGui). Tamanio del JUEGO guardado al entrar a editar.
     SDL_Window* window = nullptr;
