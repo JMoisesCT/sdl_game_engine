@@ -28,6 +28,7 @@
     <ClCompile Include="engine\Health.cpp" />
     <ClCompile Include="engine\KillZone.cpp" />
     <ClCompile Include="engine\LevelData.cpp" />
+    <ClCompile Include="engine\LevelEditor.cpp" />
     <ClCompile Include="engine\Respawn.cpp" />
     <ClCompile Include="engine\Debugger.cpp" />
     <ClCompile Include="engine\FollowCamera.cpp" />
@@ -57,6 +58,7 @@
     <ClInclude Include="engine\Health.h" />
     <ClInclude Include="engine\KillZone.h" />
     <ClInclude Include="engine\LevelData.h" />
+    <ClInclude Include="engine\LevelEditor.h" />
     <ClInclude Include="engine\Respawn.h" />
     <ClInclude Include="engine\Component.h" />
     <ClInclude Include="engine\Debugger.h" />

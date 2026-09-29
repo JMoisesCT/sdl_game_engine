@@ -96,4 +96,13 @@ void drawPoint(Scene& scene, float x, float y) {
     SDL_RenderLine(r, sx, sy - s, sx, sy + s);
 }
 
+void drawText(Scene& scene, float x, float y, const std::string& text) {
+    if (!g_enabled) return;
+    SDL_Renderer* r = scene.getRenderer();
+    float sx, sy, zoom;
+    toScreen(scene, x, y, sx, sy, zoom);
+    SDL_SetRenderDrawColor(r, 255, 90, 90, 255); // SDL_RenderDebugText usa el color actual
+    SDL_RenderDebugText(r, sx, sy, text.c_str());
+}
+
 } // namespace Debug

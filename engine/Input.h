@@ -39,11 +39,18 @@ enum class Key {
 
 enum class MouseButton { Left, Middle, Right, Count };
 
+union SDL_Event; // declaracion adelantada: SDL solo aparece en Input.cpp
+
 class Input {
 public:
     // Refresca el estado. La llama el bucle de main una vez por frame, antes de
     // actualizar la escena. Guarda el estado del frame previo para los flancos.
     static void update();
+
+    // La rueda del raton NO es un estado que se pueda leer (como una tecla): llega solo
+    // como EVENTO. Por eso el bucle de main le pasa cada evento aqui, dentro de su
+    // while (SDL_PollEvent(&e)), antes de Input::update(). Los demas eventos se ignoran.
+    static void processEvent(const SDL_Event& e);
 
     // Olvida los flancos sin perder que teclas estan mantenidas: deja el estado
     // "previo" igual al actual. Llamarlo al cambiar de escena, para que la tecla que
@@ -66,4 +73,8 @@ public:
     // izquierda de la ventana es (0,0). Para llevarlo al mundo hace falta la camara.
     static float mouseX();
     static float mouseY();
+
+    // Cuanto giro la rueda en ESTE frame: >0 hacia adelante (alejando la mano), <0
+    // hacia atras, 0 si no se movio. Una "muesca" de una rueda comun vale 1.
+    static float mouseWheel();
 };

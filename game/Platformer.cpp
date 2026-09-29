@@ -32,7 +32,7 @@
 // --- Contenido del nivel (rutas del lado del JUEGO, no del motor) ---------------
 // El nivel son DOS archivos: el mapa de Tiled (terreno) y el .level.json (objetos y
 // camara), que ademas dice que mapa usa. Por eso aqui solo se nombra el segundo.
-static const char* LEVEL_FILE = "assets/maps/platformer_level1.level.json";
+const char* PLATFORMER_LEVEL_FILE = "assets/maps/platformer_level1.level.json";
 static const char* MASK_DUDE  = "assets/pixel_adventure/Main Characters/Mask Dude/";
 static const char* FRUITS_DIR = "assets/pixel_adventure/Items/Fruits/";
 static const char* END_DIR    = "assets/pixel_adventure/Items/Checkpoints/End/";
@@ -156,19 +156,6 @@ private:
     bool done = false;
 };
 
-// --- Utilidades del nivel -------------------------------------------------------
-// Los objetos del nivel vienen en pixeles DEL MAPA (tiles de 16 px), como en Tiled. El
-// mundo esta escalado por el Transform del tilemap, asi que hay que multiplicar por esa
-// escala y sumarle el origen del mapa. Dividir el tamano de celda en el mundo entre el
-// de la imagen da exactamente esa escala, sin cablear el 4.
-static void mapToWorld(const TilemapRenderer* map, float tx, float ty,
-                       float& wx, float& wy) {
-    float sx = map->getTileWorldWidth()  / (float)map->getTileWidth();
-    float sy = map->getTileWorldHeight() / (float)map->getTileHeight();
-    wx = map->getOriginX() + tx * sx;
-    wy = map->getOriginY() + ty * sy;
-}
-
 static GameObject* createPlayer(Scene& scene, float x, float y) {
     GameObject* player = scene.createGameObject("Player");
     player->tag = TAG_PLAYER;   // los componentes del motor filtran por ESTO, no por name
@@ -241,7 +228,7 @@ static GameObject* createPlayer(Scene& scene, float x, float y) {
     return player;
 }
 
-static void createFruit(Scene& scene, float x, float y,
+static GameObject* createFruit(Scene& scene, float x, float y,
                         const std::string& kind, PlatformerHud* hud) {
     GameObject* f = scene.createGameObject("Fruit");
     f->tag = TAG_PICKUP;
@@ -269,11 +256,12 @@ static void createFruit(Scene& scene, float x, float y,
     c->collectorTag = TAG_PLAYER;
     c->collectAnimation = "collected";
     c->onCollect = [hud](GameObject*) { if (hud) hud->add(1); };
+    return f;
 }
 
 // Pinchos: un solo cuadro de 16x16, apoyado en el suelo. Trigger, para que el jugador
 // los atraviese en vez de quedarse frenado contra ellos.
-static void createSpikes(Scene& scene, float x, float y) {
+static GameObject* createSpikes(Scene& scene, float x, float y) {
     GameObject* s = scene.createGameObject("Spikes");
     s->tag = TAG_HAZARD;
     s->sortingOrder = LAYER_ITEMS;
@@ -290,11 +278,12 @@ static void createSpikes(Scene& scene, float x, float y) {
     auto h = s->addComponent<Hazard>();
     h->damage = 1;
     h->targetTag = TAG_PLAYER;
+    return s;
 }
 
 // Sierra: tira de 8 cuadros de 38x38. De momento esta quieta; en la fase 4, con
 // PathMover, podra ir y venir por un recorrido.
-static void createSaw(Scene& scene, float x, float y) {
+static GameObject* createSaw(Scene& scene, float x, float y) {
     GameObject* s = scene.createGameObject("Saw");
     s->tag = TAG_HAZARD;
     s->sortingOrder = LAYER_ITEMS;
@@ -316,9 +305,10 @@ static void createSaw(Scene& scene, float x, float y) {
     h->damage = 1;
     h->targetTag = TAG_PLAYER;
     h->knockbackX = 360.0f;
+    return s;
 }
 
-static void createCheckpoint(Scene& scene, float x, float y) {
+static GameObject* createCheckpoint(Scene& scene, float x, float y) {
     GameObject* c = scene.createGameObject("Checkpoint");
     c->sortingOrder = LAYER_ITEMS;
     c->transform->x = x;
@@ -346,9 +336,10 @@ static void createCheckpoint(Scene& scene, float x, float y) {
     // El sprite esta dibujado con el pie abajo; reaparecer un poco por encima del
     // centro evita que el jugador aparezca medio metido en el suelo.
     cp->offsetY = -16.0f;
+    return c;
 }
 
-static void createLevelEnd(Scene& scene, float x, float y, PlatformerHud* hud) {
+static GameObject* createLevelEnd(Scene& scene, float x, float y, PlatformerHud* hud) {
     GameObject* e = scene.createGameObject("LevelEnd");
     e->sortingOrder = LAYER_ITEMS;
     e->transform->x = x;
@@ -367,6 +358,7 @@ static void createLevelEnd(Scene& scene, float x, float y, PlatformerHud* hud) {
     col->isTrigger = true;
 
     e->addComponent<LevelEnd>()->hud = hud;
+    return e;
 }
 
 // Franja ancha por debajo del nivel: caerse del mapa mata en vez de dejar al jugador
@@ -386,13 +378,15 @@ static void createFallKillZone(Scene& scene, const TilemapRenderer* map) {
 }
 
 void buildPlatformer(Scene& scene) {
-    // --- Archivo del nivel ---------------------------------------------------------
-    // Trae que mapa usar, los objetos y los ajustes de camara. Si falla, el nivel sale
-    // vacio (sin mapa ni objetos) pero el juego no se cae: queda el log para saber por que.
+    // Si el archivo falla, el nivel sale vacio (sin mapa ni objetos) pero el juego no se
+    // cae: queda el log para saber por que.
     LevelData level;
-    if (!loadLevel(LEVEL_FILE, level))
-        SDL_Log("buildPlatformer: no se pudo cargar %s", LEVEL_FILE);
+    if (!loadLevel(PLATFORMER_LEVEL_FILE, level))
+        SDL_Log("buildPlatformer: no se pudo cargar %s", PLATFORMER_LEVEL_FILE);
+    buildPlatformerLevel(scene, level);
+}
 
+void buildPlatformerLevel(Scene& scene, const LevelData& level) {
     // --- Fondo con parallax ------------------------------------------------------
     // Se dibuja primero (sortingOrder mas bajo) y se mueve a un tercio de la camara,
     // asi el nivel parece tener profundidad. El PNG es tileable de 64x64.
@@ -475,47 +469,53 @@ void buildPlatformer(Scene& scene) {
     const std::vector<TiledObject>& objects = level.objects;
 
     float spawnX = FALLBACK_SPAWN_X, spawnY = FALLBACK_SPAWN_Y;
-    bool  haveSpawn = false;
+    int   spawnId = 0; // id del PlayerStart en el archivo (0 = no hay)
     int   fruitCount = 0;
 
     // Primera pasada: el punto de aparicion, porque el jugador se crea antes que nada
     // mas (asi la camara ya lo tiene a quien seguir).
     for (const TiledObject& o : objects) {
         if (o.type == "PlayerStart") {
-            mapToWorld(tm, o.cx, o.cy, spawnX, spawnY);
-            haveSpawn = true;
+            tm->mapToWorld(o.cx, o.cy, spawnX, spawnY);
+            spawnId = o.id;
             break;
         }
     }
-    if (!haveSpawn)
+    if (spawnId == 0)
         SDL_Log("buildPlatformer: el nivel no trae ningun objeto PlayerStart; "
                 "se usa la posicion por defecto.");
 
     GameObject* player = createPlayer(scene, spawnX, spawnY);
+    // El jugador ES la representacion del PlayerStart: en el editor, arrastrar al
+    // jugador mueve su punto de aparicion.
+    player->levelObjectId = spawnId;
     hud->playerHealth = player->getComponent<Health>();
 
     // Segunda pasada: el resto del contenido.
     for (const TiledObject& o : objects) {
         float wx, wy;
-        mapToWorld(tm, o.cx, o.cy, wx, wy);
+        tm->mapToWorld(o.cx, o.cy, wx, wy);
 
+        GameObject* made = nullptr;
         if (o.type == "Fruit") {
             // Propiedad "fruit" del objeto: Apple, Bananas, Cherries, Kiwi,
             // Melon, Orange, Pineapple o Strawberry. Si falta, cae en Apple.
-            createFruit(scene, wx, wy, o.getString("fruit", "Apple"), hud);
+            made = createFruit(scene, wx, wy, o.getString("fruit", "Apple"), hud);
             ++fruitCount;
         } else if (o.type == "Spikes") {
-            createSpikes(scene, wx, wy);
+            made = createSpikes(scene, wx, wy);
         } else if (o.type == "Saw") {
-            createSaw(scene, wx, wy);
+            made = createSaw(scene, wx, wy);
         } else if (o.type == "Checkpoint") {
-            createCheckpoint(scene, wx, wy);
+            made = createCheckpoint(scene, wx, wy);
         } else if (o.type == "LevelEnd") {
-            createLevelEnd(scene, wx, wy, hud);
+            made = createLevelEnd(scene, wx, wy, hud);
         } else if (o.type != "PlayerStart" && !o.type.empty()) {
             SDL_Log("buildPlatformer: objeto con type '%s' sin fabrica; se ignora.",
                     o.type.c_str());
         }
+        // Marca que entrada del archivo origino este objeto (la usa el editor).
+        if (made) made->levelObjectId = o.id;
     }
     hud->total = fruitCount;
 

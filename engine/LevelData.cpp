@@ -5,6 +5,7 @@
 #include <SDL3/SDL.h>
 #include <nlohmann/json.hpp> // solo aqui: el header queda sin dependencias
 #include <algorithm>
+#include <cmath>
 #include <fstream>
 #include <set>
 
@@ -36,6 +37,13 @@
 
 namespace {
     const int LEVEL_FORMAT_VERSION = 1;
+
+    // Ajustes de camara conocidos (ver applyCameraSettings), en el orden en que se
+    // escriben al guardar. Un orden FIJO hace que guardar sin tocar la camara no cambie
+    // esas lineas del archivo (un std::map las escribiria por orden alfabetico).
+    const char* const CAMERA_KEYS[] = {
+        "zoom", "deadZoneWidth", "deadZoneHeight", "smoothSpeed", "lookAhead", "lookAheadSpeed"
+    };
 
     // Carpeta de un archivo, con la barra final ("assets/maps/nivel.json" -> "assets/maps/").
     std::string folderOf(const std::string& filePath) {
@@ -90,7 +98,8 @@ bool loadLevel(const std::string& filePath, LevelData& out) {
             SDL_Log("loadLevel: '%s' no dice que mapa usa (falta \"map\")", filePath.c_str());
             return false;
         }
-        level.mapPath = folderOf(filePath) + j["map"].get<std::string>();
+        level.mapFile = j["map"].get<std::string>();
+        level.mapPath = folderOf(filePath) + level.mapFile;
 
         if (j.contains("camera")) {
             const json& cam = j["camera"];
@@ -155,6 +164,114 @@ bool loadLevel(const std::string& filePath, LevelData& out) {
     }
 
     out = std::move(level);
+    return true;
+}
+
+namespace {
+    // Un numero sin ".0" cuando es entero: este archivo lo leen (y lo comparan en git)
+    // personas, y "x": 176 se lee mejor que "x": 176.0.
+    nlohmann::ordered_json number(double v) {
+        if (std::floor(v) == v && std::fabs(v) < 1e15) return (long long)v;
+        return v;
+    }
+
+    // Un objeto JSON en UNA linea y con espacios: { "id": 1, "type": "Fruit" }. Un objeto
+    // del nivel por linea deja el archivo legible y los diffs cortos: mover una fruta
+    // cambia una sola linea.
+    std::string inlineJson(const nlohmann::ordered_json& j) {
+        if (!j.is_object() || j.empty()) return j.dump();
+        std::string s = "{ ";
+        bool first = true;
+        for (auto it = j.begin(); it != j.end(); ++it) {
+            if (!first) s += ", ";
+            first = false;
+            s += nlohmann::ordered_json(it.key()).dump() + ": " + inlineJson(it.value());
+        }
+        return s + " }";
+    }
+}
+
+bool saveLevel(const std::string& filePath, const LevelData& level) {
+    using ojson = nlohmann::ordered_json; // conserva el orden de las claves al escribir
+
+    // Ruta del mapa tal como va en el archivo (relativa a su carpeta). Si el LevelData
+    // no la trae, se deduce de la resuelta quitandole la carpeta del nivel.
+    std::string mapFile = level.mapFile;
+    if (mapFile.empty()) {
+        std::string dir = folderOf(filePath);
+        bool inside = !dir.empty() && level.mapPath.compare(0, dir.size(), dir) == 0;
+        mapFile = inside ? level.mapPath.substr(dir.size()) : level.mapPath;
+    }
+
+    // Se arma a mano (y no con un dump() con sangria) para que cada objeto quede en una
+    // sola linea, igual que en los archivos escritos a mano.
+    std::string text = "{\n";
+    text += "  \"version\": " + std::to_string(LEVEL_FORMAT_VERSION) + ",\n";
+    text += "  \"map\": " + ojson(mapFile).dump() + ",\n";
+    text += "  \"nextObjectId\": " + std::to_string(level.nextObjectId) + ",\n";
+
+    text += "  \"camera\": {";
+    bool first = true;
+    auto writeCameraKey = [&](const std::string& key, double value) {
+        text += first ? "\n" : ",\n";
+        first = false;
+        text += "    " + ojson(key).dump() + ": " + number(value).dump();
+    };
+    // Primero los conocidos, en su orden fijo; despues cualquier otro que traiga.
+    for (const char* key : CAMERA_KEYS) {
+        auto it = level.camera.find(key);
+        if (it != level.camera.end()) writeCameraKey(it->first, it->second);
+    }
+    for (const auto& kv : level.camera) {
+        bool known = false;
+        for (const char* key : CAMERA_KEYS) known = known || kv.first == key;
+        if (!known) writeCameraKey(kv.first, kv.second);
+    }
+    text += first ? "},\n" : "\n  },\n";
+
+    text += "  \"objects\": [";
+    first = true;
+    for (const TiledObject& t : level.objects) {
+        ojson o;
+        o["id"] = t.id;
+        o["type"] = t.type;
+        if (!t.name.empty()) o["name"] = t.name;
+        o["x"] = number(t.cx);
+        o["y"] = number(t.cy);
+        if (t.w != 0.0f || t.h != 0.0f) { o["w"] = number(t.w); o["h"] = number(t.h); }
+        if (!t.stringProps.empty() || !t.numberProps.empty()) {
+            // Los bool se leyeron como 0/1 y se escriben como numero: para el juego
+            // (getNumber) significan lo mismo.
+            ojson props = ojson::object();
+            for (const auto& kv : t.stringProps) props[kv.first] = kv.second;
+            for (const auto& kv : t.numberProps) props[kv.first] = number(kv.second);
+            o["properties"] = props;
+        }
+        text += first ? "\n" : ",\n";
+        first = false;
+        text += "    " + inlineJson(o);
+    }
+    text += first ? "]\n}\n" : "\n  ]\n}\n";
+
+    // Temporal + renombrar: un corte a mitad de la escritura no deja el nivel roto.
+    std::string tmpPath = filePath + ".tmp";
+    {
+        std::ofstream file(tmpPath, std::ios::binary);
+        if (!file) {
+            SDL_Log("saveLevel: no se pudo crear '%s'", tmpPath.c_str());
+            return false;
+        }
+        file << text;
+        if (!file) {
+            SDL_Log("saveLevel: fallo la escritura de '%s'", tmpPath.c_str());
+            return false;
+        }
+    }
+    if (!SDL_RenamePath(tmpPath.c_str(), filePath.c_str())) {
+        SDL_Log("saveLevel: no se pudo reemplazar '%s': %s", filePath.c_str(), SDL_GetError());
+        SDL_RemovePath(tmpPath.c_str());
+        return false;
+    }
     return true;
 }
 

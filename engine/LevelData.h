@@ -28,6 +28,9 @@ struct LevelData {
     // Ruta del mapa de Tiled YA RESUELTA (el archivo la guarda relativa a su carpeta,
     // igual que Tiled guarda la imagen del tileset relativa al mapa).
     std::string mapPath;
+    // La misma ruta TAL COMO esta escrita en el archivo (relativa). Es la que se vuelve
+    // a escribir al guardar.
+    std::string mapFile;
 
     // Siguiente id libre para un objeto nuevo (lo usara el editor al crear objetos).
     int nextObjectId = 1;
@@ -45,6 +48,12 @@ struct LevelData {
 // Lee un archivo .level.json. Devuelve false (y hace SDL_Log) si no se puede abrir o no
 // es valido; en ese caso 'out' queda sin tocar. Ver el .cpp para el formato.
 bool loadLevel(const std::string& path, LevelData& out);
+
+// Escribe el nivel en un .level.json (el mismo formato que lee loadLevel). Primero lo
+// escribe en un archivo temporal y despues lo renombra: si algo falla a mitad de camino,
+// el archivo anterior queda intacto. Devuelve false (y hace SDL_Log) si no pudo.
+// Solo el editor deberia llamarla: el .level.json tiene UN solo escritor.
+bool saveLevel(const std::string& path, const LevelData& level);
 
 // Aplica a la camara los ajustes que traiga el nivel, SOLO los que esten en el archivo:
 // lo que falte conserva el valor que ya tenia el componente. Asi el juego pone sus

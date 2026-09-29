@@ -208,6 +208,18 @@ float TilemapRenderer::getTileWorldHeight() const { return tileH * gameObject->t
 float TilemapRenderer::getOriginX() const { return gameObject->transform->x; }
 float TilemapRenderer::getOriginY() const { return gameObject->transform->y; }
 
+void TilemapRenderer::mapToWorld(float mapX, float mapY, float& worldX, float& worldY) const {
+    // Un pixel del mapa mide en el mundo lo que la escala del objeto.
+    worldX = getOriginX() + mapX * gameObject->transform->scaleX;
+    worldY = getOriginY() + mapY * gameObject->transform->scaleY;
+}
+
+void TilemapRenderer::worldToMap(float worldX, float worldY, float& mapX, float& mapY) const {
+    float sx = gameObject->transform->scaleX, sy = gameObject->transform->scaleY;
+    mapX = (sx != 0.0f) ? (worldX - getOriginX()) / sx : 0.0f;
+    mapY = (sy != 0.0f) ? (worldY - getOriginY()) / sy : 0.0f;
+}
+
 void TilemapRenderer::worldToCell(float worldX, float worldY, int& col, int& row) const {
     float cw = getTileWorldWidth(), ch = getTileWorldHeight();
     if (cw <= 0.0f || ch <= 0.0f) { col = row = -1; return; }

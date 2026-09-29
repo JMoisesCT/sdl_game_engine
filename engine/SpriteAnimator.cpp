@@ -124,6 +124,10 @@ void SpriteAnimator::update(float dt) {
 }
 
 void SpriteAnimator::applyFrame() {
+    // Perezoso: el SpriteRenderer hermano se busca la primera vez que hace falta. Asi
+    // play() ya muestra el primer cuadro aunque todavia no haya corrido ningun update
+    // (el objeto recien creado, o la escena congelada del editor).
+    if (!sprite) sprite = gameObject->getComponent<SpriteRenderer>();
     if (!sprite || current.empty()) return;
     Clip& clip = clips[current];
     if (clip.frames.empty() || clip.columns <= 0) return;

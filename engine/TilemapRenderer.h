@@ -82,6 +82,13 @@ public:
     float getOriginX() const;
     float getOriginY() const;
 
+    // Pixeles DEL MAPA <-> mundo. Los objetos de Tiled y del .level.json vienen en
+    // pixeles del mapa: sin escalar y con origen en la esquina de la celda (0,0). Es la
+    // UNICA conversion entre los dos espacios: la usan la fabrica del juego y el editor,
+    // asi nunca pueden discrepar.
+    void mapToWorld(float mapX, float mapY, float& worldX, float& worldY) const;
+    void worldToMap(float worldX, float worldY, float& mapX, float& mapY) const;
+
     // Punto del mundo -> indices de celda. Puede devolver indices FUERA del mapa
     // (negativos o >= tamano): comprobarlo con isValidCell si hace falta.
     void worldToCell(float worldX, float worldY, int& col, int& row) const;

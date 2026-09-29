@@ -6,6 +6,7 @@
 #include "engine/Scene.h"
 #include "engine/Debugger.h"
 #include "engine/Input.h"
+#include "engine/LevelEditor.h"
 
 #include "game/Platformer.h"
 #include "game/TopDown.h"
@@ -23,14 +24,36 @@ int main(int argc, char* argv[]) {
         SDL_Quit();
         return 1;
     }
-    SDL_Window* window = SDL_CreateWindow("Ejemplo 1: Platformer  (1/2/3 cambia, F1 debug)", 1280, 720, 0);
+    SDL_Window* window = SDL_CreateWindow("Ejemplo 1: Platformer", 1280, 720, 0);
     if (!window) { SDL_Quit(); return 1; }
     SDL_Renderer* renderer = SDL_CreateRenderer(window, nullptr);
     if (!renderer) { SDL_DestroyWindow(window); SDL_Quit(); return 1; }
 
-    auto scene = std::make_unique<Scene>(renderer);
-    buildPlatformer(*scene);
-    int current = 1;
+    std::unique_ptr<Scene> scene;
+    int current = 0;
+
+    // Editor de niveles (F2). Guarda su copia del nivel (el MODELO) y la escena se
+    // construye desde ella con la fabrica del juego. Por ahora solo el platformer tiene
+    // archivo de nivel; en los otros ejemplos el editor queda cerrado y F2 no hace nada.
+    LevelEditor editor;
+
+    // Arma desde cero el ejemplo elegido.
+    auto loadExample = [&](int which) {
+        current = which;
+        scene = std::make_unique<Scene>(renderer);
+        editor.close();
+        if (which == 1) {
+            editor.open(PLATFORMER_LEVEL_FILE, buildPlatformerLevel);
+            editor.buildInto(*scene);
+            SDL_SetWindowTitle(window, "Ejemplo 1: Platformer  (1/2/3 cambia, F1 debug, F2 editor)");
+        }
+        if (which == 2) { buildTopDown(*scene); SDL_SetWindowTitle(window, "Ejemplo 2: Top-down  (1/2/3 cambia, F1 debug)"); }
+        if (which == 3) { buildShooter(*scene); SDL_SetWindowTitle(window, "Ejemplo 3: Shooter  (1/2/3 cambia, F1 debug)"); }
+        // La escena nueva arranca sin flancos pendientes: si no, la tecla que
+        // todavia esta apretada se leeria como "recien presionada" ahi tambien.
+        Input::reset();
+    };
+    loadExample(1);
 
     bool running = true;
 
@@ -54,6 +77,7 @@ int main(int argc, char* argv[]) {
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
             if (event.type == SDL_EVENT_QUIT) running = false;
+            Input::processEvent(event); // la rueda del raton solo llega como evento
         }
 
         // Estado de teclado y raton para ESTE frame. Va despues del bucle de eventos
@@ -63,28 +87,32 @@ int main(int argc, char* argv[]) {
 
         if (Input::wasPressed(Key::F1)) Debug::toggle();
 
-        int sel = 0;
-        if (Input::wasPressed(Key::Num1)) sel = 1;
-        if (Input::wasPressed(Key::Num2)) sel = 2;
-        if (Input::wasPressed(Key::Num3)) sel = 3;
-
-        if (sel != 0 && sel != current) {
-            current = sel;
-            scene = std::make_unique<Scene>(renderer);
-            if (sel == 1) { buildPlatformer(*scene); SDL_SetWindowTitle(window, "Ejemplo 1: Platformer  (1/2/3 cambia, F1 debug)"); }
-            if (sel == 2) { buildTopDown(*scene);    SDL_SetWindowTitle(window, "Ejemplo 2: Top-down  (1/2/3 cambia, F1 debug)"); }
-            if (sel == 3) { buildShooter(*scene);    SDL_SetWindowTitle(window, "Ejemplo 3: Shooter  (1/2/3 cambia, F1 debug)"); }
-            // La escena nueva arranca sin flancos pendientes: si no, la tecla que
-            // todavia esta apretada se leeria como "recien presionada" ahi tambien.
-            Input::reset();
+        // Cambio de ejemplo. Mientras se edita no: 1/2/3 descartarian lo editado por
+        // accidente (primero F2 para salir del editor).
+        if (!editor.isEditing()) {
+            int sel = 0;
+            if (Input::wasPressed(Key::Num1)) sel = 1;
+            if (Input::wasPressed(Key::Num2)) sel = 2;
+            if (Input::wasPressed(Key::Num3)) sel = 3;
+            if (sel != 0 && sel != current) loadExample(sel);
         }
 
-        scene->update(dt);
+        // Editor: F2 entra/sale; editando atiende raton y teclas (sin nivel no hace nada).
+        editor.update(*scene, dt);
+        if (editor.wantsRebuild()) {
+            // Stop/Play o recarga: escena nueva desde el modelo del editor.
+            scene = std::make_unique<Scene>(renderer);
+            editor.buildInto(*scene);
+        }
+
+        // Editando, la escena esta congelada: sin update no hay fisica ni triggers.
+        if (!editor.isEditing()) scene->update(dt);
 
         SDL_SetRenderDrawColor(renderer, 245, 245, 245, 255);
         SDL_RenderClear(renderer);
         scene->render();
         Debug::drawColliders(*scene);
+        editor.render(*scene); // marcas, grilla y barra del editor (encima de todo)
         SDL_RenderPresent(renderer);
     }
 

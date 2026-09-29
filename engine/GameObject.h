@@ -34,6 +34,11 @@ public:
     // objetos del mundo 0, jugador 10, HUD 100.
     int sortingOrder = 0;
 
+    // Id del objeto del ARCHIVO DE NIVEL (.level.json) que origino este GameObject;
+    // 0 = no viene del nivel (HUD, camara, balas...). Lo pone la fabrica del juego y lo
+    // usa el editor para saber que entrada del archivo corresponde a lo que se ve.
+    int levelObjectId = 0;
+
     explicit GameObject(std::string n = "GameObject") : name(std::move(n)) {
         transform = addComponent<Transform>();
     }

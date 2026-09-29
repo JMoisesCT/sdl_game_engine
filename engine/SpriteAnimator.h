@@ -95,7 +95,7 @@ private:
     int frameW, frameH, columns; // valores por defecto para addAnimation
     std::unordered_map<std::string, Clip> clips;
 
-    SpriteRenderer* sprite = nullptr; // se resuelve solo en el primer update
+    SpriteRenderer* sprite = nullptr; // se resuelve solo la primera vez que hace falta
     SDL_Texture* appliedTexture = nullptr; // ultima textura puesta en el SpriteRenderer
     std::string current;
     int   currentIndex = 0;

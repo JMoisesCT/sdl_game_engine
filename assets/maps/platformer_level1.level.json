@@ -8,13 +8,13 @@
     "lookAhead": 120
   },
   "objects": [
-    { "id": 1, "type": "PlayerStart", "x": 176, "y": 232 },
-    { "id": 2, "type": "Fruit", "x": 200, "y": 242, "properties": { "fruit": "Apple" } },
+    { "id": 1, "type": "PlayerStart", "x": 196, "y": 211 },
+    { "id": 2, "type": "Fruit", "x": 264, "y": 205, "properties": { "fruit": "Apple" } },
     { "id": 3, "type": "Spikes", "x": 224, "y": 248 },
-    { "id": 4, "type": "Fruit", "x": 248, "y": 242, "properties": { "fruit": "Bananas" } },
-    { "id": 5, "type": "Checkpoint", "x": 272, "y": 240 },
-    { "id": 6, "type": "Saw", "x": 240, "y": 208 },
-    { "id": 7, "type": "Fruit", "x": 296, "y": 242, "properties": { "fruit": "Cherries" } },
-    { "id": 8, "type": "LevelEnd", "x": 316, "y": 240 }
+    { "id": 4, "type": "Fruit", "x": 252, "y": 250, "properties": { "fruit": "Bananas" } },
+    { "id": 5, "type": "Checkpoint", "x": 320, "y": 240 },
+    { "id": 6, "type": "Saw", "x": 353, "y": 247 },
+    { "id": 7, "type": "Fruit", "x": 296, "y": 250, "properties": { "fruit": "Cherries" } },
+    { "id": 8, "type": "LevelEnd", "x": 594, "y": 240 }
   ]
 }

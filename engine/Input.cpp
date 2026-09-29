@@ -14,6 +14,9 @@ namespace {
     bool mousePrev[MOUSE_COUNT] = { false };
     float cursorX = 0.0f, cursorY = 0.0f;
 
+    float wheelPending = 0.0f; // acumulado por processEvent hasta el proximo update
+    float wheelFrame   = 0.0f; // lo que se giro en ESTE frame
+
     // Traduccion Key -> scancode de SDL. Un switch (y no una tabla indexada por el
     // enum) para que agregar una tecla no dependa de mantener el orden del array.
     SDL_Scancode toScancode(Key k) {
@@ -93,6 +96,18 @@ void Input::update() {
     for (int i = 0; i < KEY_COUNT; ++i)   keysPrev[i]  = keysNow[i];
     for (int i = 0; i < MOUSE_COUNT; ++i) mousePrev[i] = mouseNow[i];
     readDevices();
+
+    // La rueda de este frame es lo que llego en los eventos desde el update anterior.
+    wheelFrame = wheelPending;
+    wheelPending = 0.0f;
+}
+
+void Input::processEvent(const SDL_Event& e) {
+    if (e.type != SDL_EVENT_MOUSE_WHEEL) return;
+    float y = e.wheel.y;
+    // Con el "desplazamiento natural" del sistema SDL entrega el valor invertido.
+    if (e.wheel.direction == SDL_MOUSEWHEEL_FLIPPED) y = -y;
+    wheelPending += y;
 }
 
 void Input::reset() {
@@ -101,6 +116,7 @@ void Input::reset() {
     readDevices();
     for (int i = 0; i < KEY_COUNT; ++i)   keysPrev[i]  = keysNow[i];
     for (int i = 0; i < MOUSE_COUNT; ++i) mousePrev[i] = mouseNow[i];
+    wheelPending = wheelFrame = 0.0f;
 }
 
 bool Input::isDown(Key k)      { return valid(k) &&  keysNow[(int)k]; }
@@ -120,3 +136,4 @@ bool Input::wasMouseReleased(MouseButton b) { return valid(b) && !mouseNow[(int)
 
 float Input::mouseX() { return cursorX; }
 float Input::mouseY() { return cursorY; }
+float Input::mouseWheel() { return wheelFrame; }

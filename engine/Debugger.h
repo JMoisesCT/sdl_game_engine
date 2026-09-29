@@ -1,4 +1,5 @@
 #pragma once
+#include <string>
 
 class Scene;
 class FollowCamera;
@@ -25,4 +26,8 @@ namespace Debug {
     void drawRect(Scene& scene, float x, float y, float w, float h);
     void drawLine(Scene& scene, float x1, float y1, float x2, float y2);
     void drawPoint(Scene& scene, float x, float y);
+    // Texto en coordenadas de MUNDO (esquina superior izquierda en x,y), con la fuente
+    // de depuracion que trae SDL3 (8x8 px, solo ASCII: sin tildes). No necesita cargar
+    // ninguna fuente. Util para ver valores encima de un objeto: velocidad, estado...
+    void drawText(Scene& scene, float x, float y, const std::string& text);
 }

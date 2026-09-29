@@ -181,12 +181,38 @@ Hay **tres ejemplos** que se cambian en caliente con las teclas numéricas:
 | `2`   | Top-down (4 direcciones; personaje de **Ninja Adventure** con animación direccional y mundo desde Tiled) |
 | `3`   | Shooter (shmup vertical con scroll de cámara; naves del pack **Kenney Pixel Shmup**, enemigos por *streaming* desde la capa de objetos de Tiled y **HUD de puntaje**) |
 | `F1`  | Prende/apaga el dibujo de debug (colliders, etc.) |
+| `F2`  | Abre/cierra el **editor de niveles** (solo en el platformer) |
 
 Controles dentro de cada ejemplo:
 
 - **Platformer (`1`)**: `←`/`→` mueven, `Espacio` salta.
 - **Top-down (`2`)**: `←`/`→`/`↑`/`↓` mueven en las 4 direcciones.
 - **Shooter (`3`)**: `←`/`→` mueven, `Espacio` dispara.
+
+### Editor de niveles (`F2`)
+
+`F2` funciona como Stop/Play de Unity: al entrar, el nivel vuelve a su estado inicial y se
+congela (no hay física ni animación); al salir, se juega con lo editado. Edita los **objetos**
+del nivel (jugador, frutas, trampas, checkpoint, meta); el terreno se edita en Tiled.
+
+| Control | Acción |
+|---|---|
+| Clic izquierdo | Seleccionar un objeto / arrastrarlo |
+| Clic derecho (o `←`/`→`/`↑`/`↓`) | Mover la vista |
+| Rueda | Zoom hacia el cursor |
+| `G` | Grilla de medio tile activada/desactivada (sin grilla, píxel a píxel) |
+| `C` | Mostrar/ocultar las celdas sólidas del mapa (en rojo) |
+| `Ctrl+S` | Guardar `platformer_level1.level.json` |
+| `F5` | Recargar (después de pintar en Tiled) |
+| `Esc` | Quitar la selección |
+
+La barra inferior muestra el objeto elegido y avisa con `*SIN GUARDAR` si hay cambios
+pendientes. Mientras se edita, `1`/`2`/`3` no cambian de ejemplo.
+
+> Guardar escribe en la carpeta desde la que se ejecuta el juego. Ejecutando desde Visual
+> Studio es la carpeta del proyecto (lo correcto). Si abres el `.exe` directamente desde
+> `x64/Debug`, se guarda en la copia de `assets/` que hay ahí y la próxima compilación la
+> sobrescribe. El log muestra la ruta completa de cada guardado.
 
 ---
 
@@ -251,8 +277,9 @@ assets/maps/platformer_level1.json
 
 En el platformer, el jugador, las frutas, las trampas, el checkpoint y la meta viven en
 `assets/maps/platformer_level1.level.json`. Cada archivo tiene **un solo programa que lo
-escribe** (Tiled el mapa; el futuro editor del motor el `.level.json`), así ninguno pisa los
-cambios del otro. Por ahora se edita a mano:
+escribe** (Tiled el mapa; el editor del motor, `F2`, el `.level.json`), así ninguno pisa los
+cambios del otro. Las posiciones se ajustan con el editor; lo que todavía no hace (crear o
+borrar objetos, cambiar propiedades como el tipo de fruta) se edita a mano en el archivo:
 
 ```json
 { "id": 2, "type": "Fruit", "x": 200, "y": 242, "properties": { "fruit": "Apple" } }
