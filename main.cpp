@@ -36,6 +36,7 @@ int main(int argc, char* argv[]) {
     // construye desde ella con la fabrica del juego. Por ahora solo el platformer tiene
     // archivo de nivel; en los otros ejemplos el editor queda cerrado y F2 no hace nada.
     LevelEditor editor;
+    editor.initGui(window, renderer); // paneles del editor (Dear ImGui)
 
     // Arma desde cero el ejemplo elegido.
     auto loadExample = [&](int which) {
@@ -78,6 +79,7 @@ int main(int argc, char* argv[]) {
         while (SDL_PollEvent(&event)) {
             if (event.type == SDL_EVENT_QUIT) running = false;
             Input::processEvent(event); // la rueda del raton solo llega como evento
+            editor.processEvent(event); // teclas y texto para los paneles del editor
         }
 
         // Estado de teclado y raton para ESTE frame. Va despues del bucle de eventos
@@ -120,6 +122,7 @@ int main(int argc, char* argv[]) {
     // cerrar TTF/SDL, para que TTF_CloseFont y SDL_DestroyTexture corran con las
     // librerias aun vivas.
     scene.reset();
+    editor.shutdownGui(); // ImGui tiene texturas del renderer: se cierra antes que el
 
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);

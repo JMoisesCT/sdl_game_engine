@@ -51,6 +51,7 @@ namespace {
         case Key::Escape:    return SDL_SCANCODE_ESCAPE;
         case Key::Tab:       return SDL_SCANCODE_TAB;
         case Key::Backspace: return SDL_SCANCODE_BACKSPACE;
+        case Key::Delete:    return SDL_SCANCODE_DELETE;
 
         case Key::LShift: return SDL_SCANCODE_LSHIFT;
         case Key::RShift: return SDL_SCANCODE_RSHIFT;

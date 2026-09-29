@@ -86,10 +86,13 @@ sdl_game_engine/
 │   ├── RigidBody2D.h  BoxCollider.*   # física AABB
 │   ├── TilemapRenderer.*   #   grilla de tiles (código / archivo / Tiled JSON)
 │   ├── TiledObjectLayer.*  #   lee la capa de objetos de Tiled como datos planos
+│   ├── LevelData.*         #   archivo de nivel .level.json (objetos + cámara)
+│   ├── LevelEditor.*       #   editor de niveles (F2) con paneles ImGui
 │   ├── Lifetime.h  Spawner.h
 │   ├── Debugger.*          #   ayudas visuales de depuración
 │   └── third_party/        #   librerías de terceros incluidas (vendored)
-│       └── nlohmann/json.hpp  # nlohmann/json single-include (MIT), para Tiled JSON
+│       ├── nlohmann/json.hpp  # nlohmann/json single-include (MIT), para Tiled JSON
+│       └── imgui/          #   Dear ImGui 1.92.9b (MIT), solo para el editor
 ├── game/                   # Lógica de los EJEMPLOS (lado del juego, no del motor)
 │   ├── Platformer.{h,cpp}  #   ejemplo 1
 │   ├── TopDown.{h,cpp}     #   ejemplo 2
@@ -205,9 +208,25 @@ del nivel (jugador, frutas, trampas, checkpoint, meta); el terreno se edita en T
 | `Ctrl+S` | Guardar `platformer_level1.level.json` |
 | `F5` | Recargar (después de pintar en Tiled) |
 | `Esc` | Quitar la selección |
+| `Ctrl+D` | Duplicar el objeto seleccionado |
+| `Supr` | Borrar el objeto seleccionado |
 
 La barra inferior muestra el objeto elegido y avisa con `*SIN GUARDAR` si hay cambios
 pendientes. Mientras se edita, `1`/`2`/`3` no cambian de ejemplo.
+
+Además hay tres **paneles** (hechos con Dear ImGui):
+
+- **Objetos**: la lista del nivel (doble clic centra la vista en el objeto) y los botones
+  **Nuevo** (elige un tipo que ya exista en el nivel o escribe uno), **Duplicar** y **Borrar**.
+- **Inspector**: el tipo, el nombre, la posición, el tamaño y las **propiedades** del objeto
+  elegido. Por ejemplo, cambia `fruit` de `Apple` a `Bananas` y la fruta cambia al terminar
+  de escribir.
+- **Cámara**: la zona muerta, el zoom y el adelanto de la cámara del juego, con una
+  previsualización de lo que verá el jugador al empezar. Los valores con `*` vienen del
+  archivo de nivel; "restablecer" vuelve al valor que pone el juego.
+
+Con el ratón encima de un panel, o mientras escribes en un campo, los atajos del editor no
+se activan (escribir una "g" en un nombre no apaga la grilla).
 
 > Guardar escribe en la carpeta desde la que se ejecuta el juego. Ejecutando desde Visual
 > Studio es la carpeta del proyecto (lo correcto). Si abres el `.exe` directamente desde
@@ -348,6 +367,10 @@ punteros a objetos destruidos.
   *JSON for Modern C++* usada para leer los mapas de Tiled. Licencia **MIT**. Se incluye
   **vendorizada** en el repo (`engine/third_party/nlohmann/json.hpp`, single-include), con su
   cabecera de licencia MIT intacta; no requiere instalación.
+- **[Dear ImGui](https://github.com/ocornut/imgui)** de **Omar Cornut** y colaboradores —
+  interfaz de los paneles del editor de niveles. Licencia **MIT**. Se incluye **vendorizada**
+  (v1.92.9b, en `engine/third_party/imgui/`, con su `LICENSE.txt` y un `VENDORED.txt` que
+  anota el origen y los archivos copiados); no requiere instalación.
 
 ### Assets
 

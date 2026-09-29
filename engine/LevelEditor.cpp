@@ -3,14 +3,20 @@
 #include "GameObject.h"
 #include "Transform.h"
 #include "Camera.h"
+#include "FollowCamera.h"
 #include "BoxCollider.h"
 #include "TilemapRenderer.h"
 #include "Input.h"
 
 #include <SDL3/SDL.h>
+#include <imgui/imgui.h>
+#include <imgui/imgui_impl_sdl3.h>
+#include <imgui/imgui_impl_sdlrenderer3.h>
+#include <imgui/imgui_stdlib.h> // InputText con std::string
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <set>
 
 namespace {
     const float PICK_HALF_SCREEN = 12.0f; // medio lado (px de pantalla) del area de clic sin collider
@@ -21,10 +27,17 @@ namespace {
     const float MESSAGE_SECONDS  = 3.0f;
     const float BAR_H            = 56.0f; // alto de la barra de estado (abajo)
     const float CHAR             = (float)SDL_DEBUG_TEXT_FONT_CHARACTER_SIZE; // 8 px
+    const float SIDE_PANEL_W     = 360.0f; // ancho de los paneles de la derecha
 
     TilemapRenderer* findMap(Scene& scene) {
         for (const auto& obj : scene.getObjects())
             if (TilemapRenderer* tm = obj->getComponent<TilemapRenderer>()) return tm;
+        return nullptr;
+    }
+
+    FollowCamera* findFollow(Scene& scene) {
+        for (const auto& obj : scene.getObjects())
+            if (FollowCamera* f = obj->getComponent<FollowCamera>()) return f;
         return nullptr;
     }
 
@@ -79,6 +92,56 @@ namespace {
         SDL_RenderFillRect(r, &bg);
         text(r, x, y, s, 1.0f, cr, cg, cb);
     }
+
+    // Rectangulo en coordenadas de MUNDO, centrado en (cx,cy).
+    void worldRect(Scene& scene, SDL_Renderer* r, float cx, float cy, float w, float h) {
+        float l, t, rr, b;
+        worldToScreen(scene, cx - w * 0.5f, cy - h * 0.5f, l, t);
+        worldToScreen(scene, cx + w * 0.5f, cy + h * 0.5f, rr, b);
+        SDL_FRect box{ l, t, rr - l, b - t };
+        SDL_RenderRect(r, &box);
+    }
+}
+
+// --- Paneles: inicio y fin ------------------------------------------------------------
+
+bool LevelEditor::initGui(SDL_Window* window, SDL_Renderer* renderer) {
+    if (guiReady) return true;
+
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO();
+    // Sin imgui.ini: los paneles siempre arrancan en su sitio y no se ensucia el repo.
+    io.IniFilename = nullptr;
+    ImGui::StyleColorsDark();
+
+    if (!ImGui_ImplSDL3_InitForSDLRenderer(window, renderer)) {
+        SDL_Log("LevelEditor: no se pudo iniciar ImGui (SDL3); el editor queda sin paneles.");
+        ImGui::DestroyContext();
+        return false;
+    }
+    if (!ImGui_ImplSDLRenderer3_Init(renderer)) {
+        SDL_Log("LevelEditor: no se pudo iniciar ImGui (renderer); el editor queda sin paneles.");
+        ImGui_ImplSDL3_Shutdown();
+        ImGui::DestroyContext();
+        return false;
+    }
+    guiReady = true;
+    return true;
+}
+
+void LevelEditor::shutdownGui() {
+    if (!guiReady) return;
+    ImGui_ImplSDLRenderer3_Shutdown();
+    ImGui_ImplSDL3_Shutdown();
+    ImGui::DestroyContext();
+    guiReady = guiFrame = false;
+}
+
+void LevelEditor::processEvent(const SDL_Event& e) {
+    // Solo mientras se edita: jugando no hay paneles, y ImGui acumularia los eventos en
+    // su cola sin procesarlos nunca.
+    if (guiReady && editing) ImGui_ImplSDL3_ProcessEvent(&e);
 }
 
 // --- Abrir / cerrar / construir ------------------------------------------------------
@@ -105,20 +168,34 @@ void LevelEditor::close() {
     path.clear();
     build = nullptr;
     level = LevelData();
-    levelOpen = editing = dirty = rebuildRequested = false;
+    levelOpen = editing = dirty = rebuildRequested = pendingRebuild = false;
     selectedId = 0;
     dragging = dragMoved = panning = false;
     message.clear();
     messageTime = 0.0f;
+    camSettings.clear();
 }
 
 void LevelEditor::buildInto(Scene& scene) {
     rebuildRequested = false;
     dragging = panning = false;
     if (build) build(scene, level);
+    captureCameraSettings(scene); // antes de que la vista del editor pise la camara
     // Editando, la camara de la escena nueva toma la vista del editor desde el primer
     // frame (si no, se veria un frame con la camara del juego en su posicion inicial).
     if (editing) applyView(scene);
+}
+
+void LevelEditor::captureCameraSettings(Scene& scene) {
+    camSettings.clear();
+    if (Camera* cam = scene.getActiveCamera()) camSettings["zoom"] = cam->getZoom();
+    if (FollowCamera* f = findFollow(scene)) {
+        camSettings["deadZoneWidth"]  = f->deadZoneWidth;
+        camSettings["deadZoneHeight"] = f->deadZoneHeight;
+        camSettings["smoothSpeed"]    = f->smoothSpeed;
+        camSettings["lookAhead"]      = f->lookAhead;
+        camSettings["lookAheadSpeed"] = f->lookAheadSpeed;
+    }
 }
 
 // --- Bucle ---------------------------------------------------------------------------
@@ -142,46 +219,72 @@ void LevelEditor::update(Scene& scene, float dt) {
             editing = false;
         }
         dragging = panning = false;
+        pendingRebuild = false;
         rebuildRequested = true;
         return; // esta escena se va a reemplazar: no tiene sentido tocarla
     }
     if (!editing) return;
 
-    // --- Teclas ------------------------------------------------------------------
-    if (ctrlDown() && Input::wasPressed(Key::S)) save();
-    if (!ctrlDown() && Input::wasPressed(Key::G)) {
-        snap = !snap;
-        showMessage(snap ? "Grilla: medio tile" : "Grilla: libre (pixel a pixel)");
+    // --- Frame de los paneles ----------------------------------------------------
+    // Se abre aqui (lo cierra render) para saber desde ya si el raton y el teclado son
+    // de los paneles: ImGui lo calcula al empezar el frame.
+    mouseOverGui = keysForGui = false;
+    if (guiReady) {
+        ImGui_ImplSDLRenderer3_NewFrame();
+        ImGui_ImplSDL3_NewFrame();
+        ImGui::NewFrame();
+        guiFrame = true;
+        mouseOverGui = ImGui::GetIO().WantCaptureMouse;
+        keysForGui   = ImGui::GetIO().WantCaptureKeyboard;
     }
-    if (!ctrlDown() && Input::wasPressed(Key::C)) showSolids = !showSolids;
-    if (Input::wasPressed(Key::Escape)) { selectedId = 0; dragging = false; }
-    if (Input::wasPressed(Key::F5)) { reload(); return; }
 
     Camera* cam = scene.getActiveCamera();
     TilemapRenderer* map = findMap(scene);
+
+    // --- Teclas ------------------------------------------------------------------
+    // Ctrl+S funciona siempre (los campos ya escribieron en el modelo); el resto no
+    // mientras se escribe en un campo: una "g" en un nombre no debe apagar la grilla.
+    if (ctrlDown() && Input::wasPressed(Key::S)) save();
+    if (!keysForGui) {
+        if (ctrlDown() && Input::wasPressed(Key::D)) duplicateSelected(map);
+        if (Input::wasPressed(Key::Delete)) deleteSelected();
+        if (!ctrlDown() && Input::wasPressed(Key::G)) {
+            snap = !snap;
+            showMessage(snap ? "Grilla: medio tile" : "Grilla: libre (pixel a pixel)");
+        }
+        if (!ctrlDown() && Input::wasPressed(Key::C)) showSolids = !showSolids;
+        if (Input::wasPressed(Key::Escape)) { selectedId = 0; dragging = false; }
+        if (Input::wasPressed(Key::F5)) { reload(); return; }
+    }
+
     float mx = Input::mouseX(), my = Input::mouseY();
     float zoom = (viewZoom > 0.0f) ? viewZoom : 1.0f;
 
     // --- Vista: flechas, arrastre con clic derecho/medio y rueda -----------------
     // Se divide por el zoom para que la vista se mueva lo mismo EN PANTALLA a
     // cualquier zoom (con zoom 2, 100 px de pantalla son 50 px de mundo).
-    viewX += Input::axis(Key::Left, Key::Right) * PAN_SPEED * dt / zoom;
-    viewY += Input::axis(Key::Up, Key::Down)    * PAN_SPEED * dt / zoom;
+    if (!keysForGui) {
+        viewX += Input::axis(Key::Left, Key::Right) * PAN_SPEED * dt / zoom;
+        viewY += Input::axis(Key::Up, Key::Down)    * PAN_SPEED * dt / zoom;
+    }
 
     if (Input::isMouseDown(MouseButton::Right) || Input::isMouseDown(MouseButton::Middle)) {
         // Arrastrar la vista: el mundo sigue al cursor, asi que la camara va al reves.
+        // Solo EMPIEZA fuera de los paneles; ya empezado, sigue aunque pase por encima.
         if (panning) {
             viewX -= (mx - panLastX) / zoom;
             viewY -= (my - panLastY) / zoom;
         }
-        panning = true;
-        panLastX = mx;
-        panLastY = my;
+        if (panning || !mouseOverGui) {
+            panning = true;
+            panLastX = mx;
+            panLastY = my;
+        }
     } else {
         panning = false;
     }
 
-    float wheel = Input::mouseWheel();
+    float wheel = mouseOverGui ? 0.0f : Input::mouseWheel(); // sobre un panel, la rueda es suya
     if (wheel != 0.0f && cam) {
         // Zoom HACIA EL CURSOR: el punto del mundo que esta bajo el raton sigue ahi
         // despues del zoom. Se mide antes y despues, y se corrige la vista con la
@@ -206,7 +309,7 @@ void LevelEditor::update(Scene& scene, float dt) {
     float wx, wy;
     screenToWorld(scene, mx, my, wx, wy);
 
-    if (Input::wasMousePressed(MouseButton::Left) && !overBar) {
+    if (Input::wasMousePressed(MouseButton::Left) && !overBar && !mouseOverGui) {
         selectedId = pickAt(scene, map, wx, wy);
         dragging = dragMoved = false;
         if (TiledObject* o = findObject(selectedId)) {
@@ -231,6 +334,20 @@ void LevelEditor::update(Scene& scene, float dt) {
                 dragMoved = true;
             if (dragMoved) moveSelected(scene, map, wx + dragOffX, wy + dragOffY);
         }
+    }
+
+    // --- Paneles -------------------------------------------------------------------
+    if (guiFrame) {
+        panelObjects(scene, map);
+        panelInspector(scene, map);
+        panelCamera();
+    }
+
+    // Reconstruir cuando el usuario termino de editar: reconstruir a cada tecla
+    // pulsada en un campo seria lento y le quitaria el foco al campo.
+    if (pendingRebuild && !(guiFrame && ImGui::IsAnyItemActive())) {
+        pendingRebuild = false;
+        rebuildRequested = true;
     }
 }
 
@@ -305,39 +422,97 @@ int LevelEditor::pickAt(Scene& scene, const TilemapRenderer* map, float wx, floa
     return best;
 }
 
-void LevelEditor::moveSelected(Scene& scene, const TilemapRenderer* map, float wx, float wy) {
-    TiledObject* o = findObject(selectedId);
-    if (!o) return;
-
-    float mx, my;
-    toMap(map, wx, wy, mx, my);
-
-    // Paso de la grilla en pixeles del mapa: medio tile (8 px con tiles de 16), que
-    // incluye los centros y los bordes de las celdas. Sin grilla, pixel entero: asi el
-    // archivo guarda numeros limpios.
-    float stepX = 1.0f, stepY = 1.0f;
+void LevelEditor::snapStep(const TilemapRenderer* map, float& stepX, float& stepY) const {
+    // Medio tile (8 px con tiles de 16): incluye los centros y los bordes de las celdas.
+    // Sin grilla, pixel entero: asi el archivo guarda numeros limpios.
+    stepX = stepY = 1.0f;
     if (snap) {
         stepX = (map && map->getTileWidth()  > 0) ? map->getTileWidth()  * 0.5f : 8.0f;
         stepY = (map && map->getTileHeight() > 0) ? map->getTileHeight() * 0.5f : 8.0f;
     }
-    mx = std::round(mx / stepX) * stepX;
-    my = std::round(my / stepY) * stepY;
-    if (mx == o->cx && my == o->cy) return;
+}
 
-    o->cx = mx;
-    o->cy = my;
+void LevelEditor::moveSelected(Scene& scene, const TilemapRenderer* map, float wx, float wy) {
+    TiledObject* o = findObject(selectedId);
+    if (!o) return;
+
+    float mx, my, stepX, stepY;
+    toMap(map, wx, wy, mx, my);
+    snapStep(map, stepX, stepY);
+    setObjectPosition(scene, map, *o,
+                      std::round(mx / stepX) * stepX, std::round(my / stepY) * stepY);
+}
+
+void LevelEditor::setObjectPosition(Scene& scene, const TilemapRenderer* map, TiledObject& o,
+                                    float mx, float my) {
+    if (mx == o.cx && my == o.cy) return;
+    o.cx = mx;
+    o.cy = my;
     dirty = true;
 
     // La escena esta congelada: basta con mover sus GameObjects, no hace falta
     // reconstruirla. Al volver a jugar (F2) se reconstruye igual desde el modelo.
     float nx, ny;
-    toWorld(map, *o, nx, ny);
+    toWorld(map, o, nx, ny);
     for (const auto& obj : scene.getObjects()) {
-        if (obj->levelObjectId == o->id) {
+        if (obj->levelObjectId == o.id) {
             obj->transform->x = nx;
             obj->transform->y = ny;
         }
     }
+}
+
+void LevelEditor::createObject(const TilemapRenderer* map, const std::string& type) {
+    TiledObject t;
+    // Si ya hay otro del mismo type, sus propiedades y su tamanio sirven de plantilla
+    // (una fruta nueva nace con "fruit"; sin plantilla, nace sin propiedades).
+    for (const TiledObject& other : level.objects) {
+        if (other.type == type) { t = other; break; }
+    }
+    t.id = level.nextObjectId++;
+    t.type = type;
+    t.name.clear();
+
+    // Aparece en el centro de la vista, ajustado a la grilla.
+    float mx, my, stepX, stepY;
+    toMap(map, viewX, viewY, mx, my);
+    snapStep(map, stepX, stepY);
+    t.cx = std::round(mx / stepX) * stepX;
+    t.cy = std::round(my / stepY) * stepY;
+
+    level.objects.push_back(t);
+    selectedId = t.id;
+    markChanged(true);
+    showMessage("Creado #" + std::to_string(t.id) + " " + type);
+}
+
+void LevelEditor::duplicateSelected(const TilemapRenderer* map) {
+    const TiledObject* o = findObject(selectedId);
+    if (!o) return;
+    TiledObject copy = *o; // copia ANTES del push_back: el vector puede reubicarse
+    copy.id = level.nextObjectId++;
+    // Un tile a la derecha, para que no quede escondido justo encima del original.
+    copy.cx += (map && map->getTileWidth() > 0) ? (float)map->getTileWidth() : 16.0f;
+    level.objects.push_back(copy);
+    selectedId = copy.id;
+    markChanged(true);
+    showMessage("Duplicado como #" + std::to_string(copy.id));
+}
+
+void LevelEditor::deleteSelected() {
+    auto it = std::find_if(level.objects.begin(), level.objects.end(),
+                           [this](const TiledObject& o) { return o.id == selectedId; });
+    if (it == level.objects.end()) return;
+    showMessage("Borrado #" + std::to_string(it->id) + " " + it->type);
+    level.objects.erase(it);
+    selectedId = 0;
+    dragging = false;
+    markChanged(true);
+}
+
+void LevelEditor::markChanged(bool needsRebuild) {
+    dirty = true;
+    if (needsRebuild) pendingRebuild = true;
 }
 
 void LevelEditor::applyView(Scene& scene) const {
@@ -382,7 +557,248 @@ void LevelEditor::showMessage(const std::string& textToShow) {
     messageTime = MESSAGE_SECONDS;
 }
 
+// --- Paneles -------------------------------------------------------------------------
+// Textos SIN tildes, como los comentarios: el proyecto compila sin /utf-8, asi que una
+// letra acentuada dentro de un string saldria mal en pantalla.
+
+void LevelEditor::panelObjects(Scene& scene, const TilemapRenderer* map) {
+    ImGui::SetNextWindowPos(ImVec2(10.0f, 10.0f), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(240.0f, 420.0f), ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("Objetos")) { ImGui::End(); return; }
+
+    if (ImGui::Button("Nuevo")) ImGui::OpenPopup("nuevo");
+    ImGui::SameLine();
+    ImGui::BeginDisabled(findObject(selectedId) == nullptr);
+    if (ImGui::Button("Duplicar")) duplicateSelected(map);
+    ImGui::SameLine();
+    if (ImGui::Button("Borrar")) deleteSelected();
+    ImGui::EndDisabled();
+
+    // "Nuevo": los type que YA hay en el nivel, o uno escrito a mano. El motor no
+    // conoce los type; solo los recoge del archivo.
+    if (ImGui::BeginPopup("nuevo")) {
+        std::set<std::string> types;
+        for (const TiledObject& o : level.objects)
+            if (!o.type.empty()) types.insert(o.type);
+
+        ImGui::TextDisabled("Tipos del nivel");
+        for (const std::string& type : types) {
+            if (ImGui::Selectable(type.c_str())) {
+                createObject(map, type);
+                ImGui::CloseCurrentPopup();
+            }
+        }
+        ImGui::Separator();
+        ImGui::TextDisabled("Otro tipo");
+        ImGui::SetNextItemWidth(140.0f);
+        ImGui::InputText("##otro", &newType);
+        ImGui::SameLine();
+        ImGui::BeginDisabled(newType.empty());
+        if (ImGui::Button("Crear")) {
+            createObject(map, newType);
+            newType.clear();
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndDisabled();
+        ImGui::EndPopup();
+    }
+
+    ImGui::Separator();
+    ImGui::TextDisabled("Doble clic: centrar la vista");
+    ImGui::BeginChild("lista");
+    for (const TiledObject& o : level.objects) {
+        std::string itemLabel = "#" + std::to_string(o.id) + "  " +
+                                (o.type.empty() ? "(sin type)" : o.type);
+        if (!o.name.empty()) itemLabel += "  (" + o.name + ")";
+
+        ImGui::PushID(o.id);
+        if (ImGui::Selectable(itemLabel.c_str(), o.id == selectedId,
+                              ImGuiSelectableFlags_AllowDoubleClick)) {
+            selectedId = o.id;
+            if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+                toWorld(map, o, viewX, viewY);
+                applyView(scene);
+            }
+        }
+        ImGui::PopID();
+    }
+    ImGui::EndChild();
+    ImGui::End();
+}
+
+void LevelEditor::panelInspector(Scene& scene, const TilemapRenderer* map) {
+    int outW = 0, outH = 0;
+    SDL_GetCurrentRenderOutputSize(scene.getRenderer(), &outW, &outH);
+    ImGui::SetNextWindowPos(ImVec2(outW - SIDE_PANEL_W - 10.0f, 10.0f), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(SIDE_PANEL_W, 350.0f), ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("Inspector")) { ImGui::End(); return; }
+
+    // Se busca DESPUES del panel de objetos: si ahi se creo o duplico algo, el vector
+    // pudo reubicarse y un puntero de antes no valdria.
+    TiledObject* o = findObject(selectedId);
+    if (!o) {
+        ImGui::TextDisabled("Sin seleccion.");
+        ImGui::TextDisabled("Clic sobre un objeto en el mundo");
+        ImGui::TextDisabled("o en la lista de Objetos.");
+        ImGui::End();
+        return;
+    }
+
+    ImGui::Text("id: %d", o->id);
+
+    // type: lo interpreta la fabrica del juego -> reconstruir al terminar de escribir.
+    if (ImGui::InputText("type", &o->type)) markChanged(true);
+    // name: solo identifica; la fabrica no lo usa.
+    if (ImGui::InputText("nombre", &o->name)) markChanged(false);
+
+    ImGui::SeparatorText("Posicion (px del mapa, centro)");
+    float stepX, stepY;
+    snapStep(map, stepX, stepY);
+    float x = o->cx, y = o->cy;
+    if (ImGui::InputFloat("x", &x, stepX, stepX * 4.0f, "%g"))
+        setObjectPosition(scene, map, *o, x, o->cy);
+    if (ImGui::InputFloat("y", &y, stepY, stepY * 4.0f, "%g"))
+        setObjectPosition(scene, map, *o, o->cx, y);
+
+    ImGui::SeparatorText("Tamanio (0 = punto)");
+    float w = o->w, h = o->h;
+    if (ImGui::InputFloat("w", &w, 1.0f, 8.0f, "%g")) { o->w = std::max(0.0f, w); markChanged(true); }
+    if (ImGui::InputFloat("h", &h, 1.0f, 8.0f, "%g")) { o->h = std::max(0.0f, h); markChanged(true); }
+
+    ImGui::SeparatorText("Propiedades");
+    // Lo que se borre se anota y se quita DESPUES de recorrer: borrar de un std::map
+    // mientras se lo recorre invalidaria el iterador.
+    std::string removeText, removeNumber;
+    for (auto& kv : o->stringProps) {
+        ImGui::PushID(("s:" + kv.first).c_str());
+        if (ImGui::InputText(kv.first.c_str(), &kv.second)) markChanged(true);
+        ImGui::SameLine();
+        if (ImGui::SmallButton("x")) removeText = kv.first;
+        ImGui::PopID();
+    }
+    for (auto& kv : o->numberProps) {
+        ImGui::PushID(("n:" + kv.first).c_str());
+        double v = kv.second;
+        if (ImGui::InputDouble(kv.first.c_str(), &v, 0.0, 0.0, "%g")) { kv.second = v; markChanged(true); }
+        ImGui::SameLine();
+        if (ImGui::SmallButton("x")) removeNumber = kv.first;
+        ImGui::PopID();
+    }
+    if (!removeText.empty())   { o->stringProps.erase(removeText);   markChanged(true); }
+    if (!removeNumber.empty()) { o->numberProps.erase(removeNumber); markChanged(true); }
+    if (o->stringProps.empty() && o->numberProps.empty()) ImGui::TextDisabled("(ninguna)");
+
+    // Agregar una propiedad nueva (texto o numero).
+    ImGui::Spacing();
+    ImGui::SetNextItemWidth(120.0f);
+    ImGui::InputText("##nuevaProp", &newPropKey);
+    ImGui::SameLine();
+    if (ImGui::RadioButton("texto", !newPropIsNumber)) newPropIsNumber = false;
+    ImGui::SameLine();
+    if (ImGui::RadioButton("numero", newPropIsNumber)) newPropIsNumber = true;
+    bool exists = o->stringProps.count(newPropKey) || o->numberProps.count(newPropKey);
+    ImGui::BeginDisabled(newPropKey.empty() || exists);
+    if (ImGui::Button("Agregar propiedad")) {
+        if (newPropIsNumber) o->numberProps[newPropKey] = 0.0;
+        else                 o->stringProps[newPropKey] = "";
+        newPropKey.clear();
+        markChanged(true);
+    }
+    ImGui::EndDisabled();
+
+    ImGui::End();
+}
+
+void LevelEditor::panelCamera() {
+    ImGuiIO& io = ImGui::GetIO();
+    ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x - SIDE_PANEL_W - 10.0f, 370.0f), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(SIDE_PANEL_W, 280.0f), ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("Camara")) { ImGui::End(); return; }
+
+    if (camSettings.empty()) {
+        ImGui::TextDisabled("La escena no tiene camara.");
+        ImGui::End();
+        return;
+    }
+
+    ImGui::Checkbox("Previsualizar al inicio", &showCameraPreview);
+    ImGui::TextDisabled("* = definido en el nivel;");
+    ImGui::TextDisabled("  sin *, es el valor del juego");
+    ImGui::Separator();
+
+    std::string resetKey;
+    for (const std::string& key : levelCameraKeys()) {
+        auto it = camSettings.find(key);
+        if (it == camSettings.end()) continue;
+
+        bool inLevel = level.camera.count(key) > 0;
+        bool isZoom = (key == "zoom");
+        bool inPixels = (key == "deadZoneWidth" || key == "deadZoneHeight" || key == "lookAhead");
+        float speed = isZoom ? 0.01f : inPixels ? 1.0f : 0.05f;
+        float minValue = isZoom ? 0.1f : 0.0f; // zoom 0 no se puede dibujar
+        std::string fieldLabel = key + (inLevel ? " *" : "");
+
+        ImGui::PushID(key.c_str());
+        ImGui::SetNextItemWidth(110.0f);
+        float v = it->second;
+        if (ImGui::DragFloat(fieldLabel.c_str(), &v, speed, minValue, 10000.0f, "%.2f")) {
+            // Editar un valor lo vuelve explicito en el nivel. No hace falta
+            // reconstruir: la previsualizacion lee camSettings y F2 reconstruye igual.
+            it->second = v;
+            level.camera[key] = v;
+            markChanged(false);
+        }
+        if (inLevel) {
+            ImGui::SameLine();
+            if (ImGui::SmallButton("restablecer")) resetKey = key;
+        }
+        ImGui::PopID();
+    }
+    // Quitarlo del nivel devuelve el valor del juego; para saber cual es, hay que
+    // reconstruir (lo pone la fabrica).
+    if (!resetKey.empty()) {
+        level.camera.erase(resetKey);
+        markChanged(true);
+    }
+
+    ImGui::End();
+}
+
 // --- Dibujo --------------------------------------------------------------------------
+
+void LevelEditor::drawCameraPreview(Scene& scene) {
+    // Lo que vera el jugador AL EMPEZAR: la pantalla a zoom del juego, centrada en el
+    // objetivo de la FollowCamera, y su zona muerta. No aplica los limites del mapa ni
+    // el look-ahead: es una guia, no una simulacion.
+    FollowCamera* follow = findFollow(scene);
+    GameObject* target = follow ? follow->getTarget() : nullptr;
+    if (!target) return;
+
+    SDL_Renderer* r = scene.getRenderer();
+    int outW = 0, outH = 0;
+    SDL_GetCurrentRenderOutputSize(r, &outW, &outH);
+
+    auto get = [this](const char* key, float def) {
+        auto it = camSettings.find(key);
+        return it == camSettings.end() ? def : it->second;
+    };
+    float gameZoom = get("zoom", 1.0f);
+    if (gameZoom <= 0.0f) gameZoom = 1.0f;
+    float cx = target->transform->x, cy = target->transform->y;
+
+    float deadW = get("deadZoneWidth", 0.0f), deadH = get("deadZoneHeight", 0.0f);
+    SDL_SetRenderDrawColor(r, 120, 255, 120, 220);
+    worldRect(scene, r, cx, cy, outW / gameZoom, outH / gameZoom);
+    SDL_SetRenderDrawColor(r, 80, 170, 255, 230);
+    worldRect(scene, r, cx, cy, deadW, deadH);
+
+    // La etiqueta va sobre la zona muerta y no sobre la vista: con zoom 1 la vista del
+    // juego ocupa toda la pantalla y su esquina queda fuera.
+    float lx, ly;
+    worldToScreen(scene, cx - deadW * 0.5f, cy - deadH * 0.5f, lx, ly);
+    label(r, lx, ly - 24.0f, "Camara del juego al empezar:", 80, 170, 255);
+    label(r, lx, ly - 12.0f, "zona muerta (azul), vista (verde)", 80, 170, 255);
+}
 
 void LevelEditor::render(Scene& scene) {
     if (!levelOpen) return;
@@ -468,7 +884,10 @@ void LevelEditor::render(Scene& scene) {
         SDL_RenderRect(r, &border);
     }
 
-    // --- 2) Objetos del nivel: area de seleccion, punto y etiqueta -----------------
+    // --- 2) Previsualizacion de la camara del juego --------------------------------
+    if (showCameraPreview) drawCameraPreview(scene);
+
+    // --- 3) Objetos del nivel: area de seleccion, punto y etiqueta -----------------
     for (const TiledObject& o : level.objects) {
         bool selected = (o.id == selectedId);
 
@@ -500,7 +919,7 @@ void LevelEditor::render(Scene& scene) {
         else          label(r, sl, st - 12.0f, name, 255, 255, 255);
     }
 
-    // --- 3) Barra de estado ---------------------------------------------------------
+    // --- 4) Barra de estado ---------------------------------------------------------
     float barY = outH - BAR_H;
     SDL_FRect bar{ 0.0f, barY, (float)outW, BAR_H };
     SDL_SetRenderDrawColor(r, 0, 0, 0, 190);
@@ -520,10 +939,10 @@ void LevelEditor::render(Scene& scene) {
 
     char zoomBuf[16];
     std::snprintf(zoomBuf, sizeof(zoomBuf), "%.2f", zoom);
-    std::string line2 = std::string("F2 jugar | Ctrl+S guardar | F5 recargar | G grilla: ") +
-                        (snap ? "medio tile" : "libre") + " | C solidos: " +
-                        (showSolids ? "si" : "no") + " | Esc deseleccionar | " +
-                        "Clic der./flechas: mover vista | Rueda: zoom x" + zoomBuf;
+    std::string line2 = std::string("F2 jugar | Ctrl+S guardar | Ctrl+D duplicar | Supr borrar | ") +
+                        "F5 recargar | G grilla: " + (snap ? "medio tile" : "libre") +
+                        " | C solidos: " + (showSolids ? "si" : "no") +
+                        " | Clic der./flechas: vista | Rueda: zoom x" + zoomBuf;
     text(r, 10.0f, barY + 28.0f, line2, 1.0f, 190, 190, 190);
 
     float cwx, cwy, cmx, cmy;
@@ -539,4 +958,11 @@ void LevelEditor::render(Scene& scene) {
     text(r, 10.0f, barY + 42.0f, line3, 1.0f, 190, 190, 190);
 
     SDL_SetRenderDrawBlendMode(r, oldBlend);
+
+    // --- 5) Paneles: encima de todo -------------------------------------------------
+    if (guiFrame) {
+        ImGui::Render();
+        ImGui_ImplSDLRenderer3_RenderDrawData(ImGui::GetDrawData(), r);
+        guiFrame = false;
+    }
 }

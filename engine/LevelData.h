@@ -62,3 +62,7 @@ bool saveLevel(const std::string& path, const LevelData& level);
 //   FollowCamera: deadZoneWidth, deadZoneHeight, smoothSpeed, lookAhead, lookAheadSpeed
 // Cualquiera de los dos punteros puede ser nullptr.
 void applyCameraSettings(const LevelData& level, Camera* cam, FollowCamera* follow);
+
+// Los nombres que entiende applyCameraSettings, en el orden en que se escriben al guardar
+// (el editor los muestra en ese mismo orden).
+const std::vector<std::string>& levelCameraKeys();

@@ -21,6 +21,7 @@ public:
     float lookAheadSpeed = 4.0f;   // que tan rapido se desplaza ese adelanto
 
     void setTarget(GameObject* t) { target = t; }
+    GameObject* getTarget() const { return target; }
 
     // --- Limites del encuadre ----------------------------------------------------
     // Sin limites la camara sigue al jugador hasta fuera del nivel y se ve el vacio

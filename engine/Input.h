@@ -29,7 +29,7 @@ enum class Key {
     // Flechas
     Left, Right, Up, Down,
     // Teclas de control
-    Space, Enter, Escape, Tab, Backspace,
+    Space, Enter, Escape, Tab, Backspace, Delete,
     LShift, RShift, LCtrl, RCtrl, LAlt, RAlt,
     // Funcion
     F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12,

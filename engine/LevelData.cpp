@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cmath>
 #include <fstream>
+#include <iterator>
 #include <set>
 
 // FORMATO del archivo .level.json (version 1). Ejemplo:
@@ -273,6 +274,11 @@ bool saveLevel(const std::string& filePath, const LevelData& level) {
         return false;
     }
     return true;
+}
+
+const std::vector<std::string>& levelCameraKeys() {
+    static const std::vector<std::string> keys(std::begin(CAMERA_KEYS), std::end(CAMERA_KEYS));
+    return keys;
 }
 
 void applyCameraSettings(const LevelData& level, Camera* cam, FollowCamera* follow) {

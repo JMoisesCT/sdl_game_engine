@@ -415,3 +415,6 @@ vcpkg_installed/
 # el tileset (.png) y el .tiled-project (config compartida del editor).
 # Solo se ignora el estado local de cada editor:
 *.tiled-session
+# --- Dear ImGui (editor de niveles) ---
+# El editor desactiva imgui.ini; por si acaso, no se sube el estado local de ventanas.
+imgui.ini
