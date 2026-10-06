@@ -1,33 +1,64 @@
 #pragma once
+#include <functional>
 #include <string>
 #include <utility>
 #include <vector>
 
-// CATALOGO DE OBJETOS: la lista de "type" que entiende la fabrica de UN juego, con sus
-// propiedades y valores por defecto. Lo escribe el JUEGO (al lado de su fabrica) y se lo
-// pasa al editor de niveles. El motor sigue sin conocer ningun type, pero con el
-// catalogo el editor puede:
-//   - ofrecer "Nuevo -> Spikes" aunque el nivel todavia no tenga ninguno,
-//   - crear cada objeto con sus propiedades por defecto ya puestas,
-//   - mostrar un combo con los valores validos (las frutas) en vez de texto libre,
-//   - avisar de un type o un valor mal escrito ("Aple") ANTES de jugar,
-//   - y saber que type es el punto de aparicion del jugador ("Jugar desde aqui").
-//
-//     ObjectCatalog catalog;
-//     catalog.push_back(ObjectTypeSpec("PlayerStart", "Donde aparece el jugador")
-//                           .playerSpawn());
-//     catalog.push_back(ObjectTypeSpec("Fruit", "Fruta que se recoge")
-//                           .choice("fruit", { "Apple", "Bananas", "Cherries" }));
-//     catalog.push_back(ObjectTypeSpec("Spikes", "Pinchos: quitan vida al tocarlos"));
-//
-// Es OPCIONAL: sin catalogo, el editor ofrece los type que ya hay en el nivel y deja
-// escribir cualquiera, como antes.
-//
-// Ojo: el catalogo y la fabrica tienen que decir lo mismo. Si la fabrica aprende un type
-// nuevo, se agrega aqui tambien; un type del catalogo sin fabrica se puede crear en el
-// editor, pero no aparece al jugar.
+#include "TiledObjectLayer.h" // TiledObject: de ahi salen las propiedades de cada objeto
 
-// Una propiedad que el juego espera en un type (la lee la fabrica con getString /
+class GameObject;
+
+// CATALOGO DE OBJETOS: la lista de los objetos de UN juego. Cada entrada es un "type"
+// (el nombre que se guarda en el .level.json) con la funcion que ARMA ese objeto: la que
+// le agrega sus componentes. Lo escribe el JUEGO y lo usan dos:
+//   - la fabrica del nivel, que con spawnLevelObjects (LevelData.h) crea cada objeto
+//     del archivo llamando a la funcion de su type;
+//   - el editor de niveles, que ofrece esos type en "Nuevo", muestra la ayuda, pone
+//     las propiedades por defecto y avisa de los type o valores que no existen.
+// Como los dos leen la MISMA lista, no pueden decir cosas distintas.
+//
+//     // La receta de un objeto. El motor ya lo creo y lo puso en su sitio (y con
+//     // el id que usa el editor): aqui solo se le agregan componentes.
+//     static void setupSpikes(GameObject* obj, const LevelObject& o) {
+//         obj->tag = "Hazard";
+//         obj->addComponent<SpriteRenderer>("assets/.../Spikes.png");
+//         obj->addComponent<BoxCollider>()->isTrigger = true;
+//         obj->addComponent<Hazard>()->targetTag = "Player";
+//     }
+//
+//     ObjectCatalog misObjetos() {
+//         ObjectCatalog c;
+//         c.add("PlayerStart", setupPlayer, "Donde aparece el jugador").playerSpawn();
+//         c.add("Fruit", setupFruit, "Fruta que se recoge")
+//             .choice("fruit", { "Apple", "Bananas", "Cherries" });
+//         c.add("Spikes", setupSpikes, "Pinchos: quitan vida al tocarlos");
+//         return c;
+//     }
+//
+// Agregar un objeto nuevo al juego = escribir su setup y una linea c.add(...). Despues
+// se coloca con el editor (F2 -> Nuevo).
+
+// Lo que recibe la funcion setup de un type: el objeto del nivel ya convertido al MUNDO
+// (el GameObject ya esta en x,y) y sus propiedades.
+struct LevelObject {
+    int   id = 0;
+    std::string type;
+    std::string name;
+    float x = 0.0f, y = 0.0f; // centro en el MUNDO (ya aplicado al Transform)
+    float w = 0.0f, h = 0.0f; // tamanio en el MUNDO (0 = objeto punto; >0 = una zona)
+
+    // Propiedades del archivo, con valor por defecto si faltan.
+    std::string getString(const std::string& key, const std::string& def = "") const {
+        return data ? data->getString(key, def) : def;
+    }
+    double getNumber(const std::string& key, double def = 0.0) const {
+        return data ? data->getNumber(key, def) : def;
+    }
+
+    const TiledObject* data = nullptr; // la entrada del archivo tal cual (pixeles del mapa)
+};
+
+// Una propiedad que el juego espera en un type (la lee el setup con getString /
 // getNumber).
 struct PropertySpec {
     std::string key;
@@ -38,8 +69,12 @@ struct PropertySpec {
 };
 
 struct ObjectTypeSpec {
+    // Arma el objeto: le agrega componentes, tag, escala, sortingOrder...
+    using SetupFn = std::function<void(GameObject* obj, const LevelObject& o)>;
+
     std::string type;
     std::string description;  // una linea de ayuda que muestra el editor
+    SetupFn setup;            // vacio = el editor lo conoce, pero al jugar no se crea
     float w = 0.0f, h = 0.0f; // tamanio al crearlo, en pixeles del mapa (0 = punto)
     bool unique = false;      // a lo sumo UNO por nivel (el editor avisa si hay mas)
     bool spawn = false;       // es donde aparece el jugador (ver playerSpawn)
@@ -76,7 +111,7 @@ struct ObjectTypeSpec {
         properties.push_back(p);
         return *this;
     }
-    // Objeto con area (una zona): tamanio con el que nace.
+    // Objeto con area (una zona): tamanio con el que nace, en pixeles del mapa.
     ObjectTypeSpec& size(float width, float height) {
         w = width;
         h = height;
@@ -102,11 +137,35 @@ struct ObjectTypeSpec {
     }
 };
 
-using ObjectCatalog = std::vector<ObjectTypeSpec>;
+class ObjectCatalog {
+public:
+    // Agrega un type con la funcion que lo arma. Devuelve su spec para seguir
+    // describiendolo (.choice, .number, .single, .playerSpawn...) en la misma linea.
+    // No guardar esa referencia: el siguiente add puede moverla.
+    ObjectTypeSpec& add(const std::string& type, ObjectTypeSpec::SetupFn setup,
+                        const std::string& description = "") {
+        types.emplace_back(type, description);
+        types.back().setup = std::move(setup);
+        return types.back();
+    }
+
+    // El spec de un type, o nullptr si el catalogo no lo tiene.
+    const ObjectTypeSpec* find(const std::string& type) const {
+        for (const ObjectTypeSpec& spec : types)
+            if (spec.type == type) return &spec;
+        return nullptr;
+    }
+
+    bool empty() const { return types.empty(); }
+    void clear()       { types.clear(); }
+    std::vector<ObjectTypeSpec>::const_iterator begin() const { return types.begin(); }
+    std::vector<ObjectTypeSpec>::const_iterator end()   const { return types.end(); }
+
+private:
+    std::vector<ObjectTypeSpec> types;
+};
 
 // El spec de un type, o nullptr si el catalogo no lo tiene.
 inline const ObjectTypeSpec* findObjectType(const ObjectCatalog& catalog, const std::string& type) {
-    for (const ObjectTypeSpec& spec : catalog)
-        if (spec.type == type) return &spec;
-    return nullptr;
+    return catalog.find(type);
 }

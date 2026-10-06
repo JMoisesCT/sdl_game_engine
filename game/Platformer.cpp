@@ -2,7 +2,6 @@
 
 #include <SDL3/SDL.h>
 #include <string>
-#include <vector>
 
 #include "../engine/Scene.h"
 #include "../engine/GameObject.h"
@@ -52,11 +51,20 @@ static const char* TAG_HAZARD = "Hazard";
 enum Layer { LAYER_BG = -100, LAYER_TILEMAP = -10, LAYER_ITEMS = 0,
              LAYER_PLAYER = 10, LAYER_HUD = 100 };
 
-// Donde aparece el jugador si el mapa NO trae un objeto PlayerStart.
-static const float FALLBACK_SPAWN_X = 0.0f;
-static const float FALLBACK_SPAWN_Y = -150.0f;
-
 static const int PLAYER_MAX_HP = 3;
+
+// --- Estado de la partida -------------------------------------------------------
+// Las REGLAS de este juego (cuantas frutas hay, cuantas se recogieron, si se llego a la
+// meta) viven aqui, no en el motor ni en los objetos. Los objetos lo modifican (la fruta
+// al recogerse, la meta al tocarla) y el HUD lo muestra. Asi ningun objeto necesita un
+// puntero a otro: la fruta no conoce al HUD. Se reinicia cada vez que se construye el
+// nivel (al empezar, y cada Stop/Play del editor).
+struct PlatformerState {
+    int  fruits      = 0;     // recogidas
+    int  totalFruits = 0;     // las que hay en el nivel (las cuenta el setup de cada fruta)
+    bool levelDone   = false; // se toco la meta
+};
+static PlatformerState state;
 
 // --- Controles ------------------------------------------------------------------
 // Traduce TECLAS a INTENCION para el PlatformerMotor. Eso es todo lo que hace: no sabe
@@ -101,8 +109,8 @@ private:
 };
 
 // --- HUD ------------------------------------------------------------------------
-// Vida y frutas son REGLAS DE JUEGO, por eso el conteo vive aqui y no en el motor: el
-// TextRenderer solo pinta el string que le pasamos. Cada dato tiene SU PROPIO
+// Muestra el estado de la partida y la vida del jugador. No lleva cuentas: solo LEE
+// (state y Health) y refresca el texto cuando algo cambia. Cada dato tiene SU PROPIO
 // TextRenderer: si se concatenaran en una sola cadena, al cambiar de longitud el
 // renglon se recolocaria y parecerian saltar de sitio.
 class PlatformerHud : public Component {
@@ -112,56 +120,59 @@ public:
     TextRenderer* banner     = nullptr;
     Health*       playerHealth = nullptr;
 
-    int collected = 0;
-    int total     = 0;
-
-    void add(int n) { collected += n; }
-    void setMessage(const std::string& m) { if (banner) banner->setText(m); }
-
     void update(float) override {
         if (playerHealth && livesLabel && playerHealth->getHP() != shownHP) {
             shownHP = playerHealth->getHP();
             livesLabel->setText("VIDA: " + std::to_string(shownHP) + "/" +
                                 std::to_string(playerHealth->maxHP));
         }
-        if (fruitLabel && collected != shownFruits) {
-            shownFruits = collected;
-            fruitLabel->setText("FRUTAS: " + std::to_string(collected) + "/" +
-                                std::to_string(total));
+        if (fruitLabel && state.fruits != shownFruits) {
+            shownFruits = state.fruits;
+            fruitLabel->setText("FRUTAS: " + std::to_string(state.fruits) + "/" +
+                                std::to_string(state.totalFruits));
+        }
+        if (banner && state.levelDone && !shownDone) {
+            shownDone = true;
+            banner->setText("NIVEL COMPLETADO");
         }
     }
 
 private:
-    int shownHP     = -1; // distintos de los valores reales: fuerzan el primer refresco
-    int shownFruits = -1;
+    int  shownHP     = -1; // distintos de los valores reales: fuerzan el primer refresco
+    int  shownFruits = -1;
+    bool shownDone   = false;
 };
 
 // --- Meta del nivel -------------------------------------------------------------
 // Condicion de victoria: es de ESTE juego, asi que se queda en game/.
 class LevelEnd : public Component {
 public:
-    PlatformerHud* hud = nullptr;
-
     void start() override { anim = gameObject->getComponent<SpriteAnimator>(); }
 
     void onCollision(GameObject* other) override {
-        if (done || !other->compareTag(TAG_PLAYER)) return;
-        done = true;
+        if (state.levelDone || !other->compareTag(TAG_PLAYER)) return;
+        state.levelDone = true;
         if (anim) anim->play("pressed"); // clip de un solo uso: se queda en el ultimo cuadro
-        if (hud) hud->setMessage("NIVEL COMPLETADO");
     }
 
 private:
     SpriteAnimator* anim = nullptr;
-    bool done = false;
 };
 
-static GameObject* createPlayer(Scene& scene, float x, float y) {
-    GameObject* player = scene.createGameObject("Player");
+// ================================================================================
+// OBJETOS DEL NIVEL
+// Cada type del .level.json tiene aqui su funcion setup: la RECETA del objeto. El motor
+// (spawnLevelObjects) ya creo el GameObject, lo puso en su posicion y le dio el id que
+// usa el editor; el setup solo le agrega componentes, tag, escala y capa de dibujo.
+// Para agregar un objeto nuevo al juego: escribir su setup y sumarlo al catalogo
+// (platformerObjects, mas abajo). Despues se coloca con el editor (F2 -> Nuevo).
+// ================================================================================
+
+// PlayerStart: el propio jugador. Arrastrarlo en el editor mueve su punto de aparicion.
+static void setupPlayer(GameObject* player, const LevelObject&) {
+    player->name = "Player";
     player->tag = TAG_PLAYER;   // los componentes del motor filtran por ESTO, no por name
     player->sortingOrder = LAYER_PLAYER;
-    player->transform->x = x;
-    player->transform->y = y;
     player->transform->scaleX = player->transform->scaleY = 4.0f;
 
     // ORDEN DE LOS COMPONENTES = orden de actualizacion (el GameObject los recorre en
@@ -224,23 +235,19 @@ static GameObject* createPlayer(Scene& scene, float x, float y) {
     fsm->addState("jump", [motor] { return !motor->isGrounded() && motor->isRising(); });
     fsm->addState("fall", [motor] { return !motor->isGrounded(); });
     fsm->addState("run",  [motor] { return motor->moveInput != 0.0f; });
-
-    return player;
 }
 
-static GameObject* createFruit(Scene& scene, float x, float y,
-                        const std::string& kind, PlatformerHud* hud) {
-    GameObject* f = scene.createGameObject("Fruit");
+// Fruit: propiedad "fruit" = nombre del PNG (Apple, Bananas, Cherries...).
+static void setupFruit(GameObject* f, const LevelObject& o) {
     f->tag = TAG_PICKUP;
     f->sortingOrder = LAYER_ITEMS;
-    f->transform->x = x;
-    f->transform->y = y;
     f->transform->scaleX = f->transform->scaleY = 2.0f; // 32 px -> 64 px
 
     f->addComponent<SpriteRenderer>();
     auto anim = f->addComponent<SpriteAnimator>(32, 32, 1);
     // Cada fruta es una tira de 17 cuadros de 32x32; "Collected" es el efecto comun
     // de 6 cuadros, y va SIN loop para poder destruir el objeto cuando termina.
+    const std::string kind = o.getString("fruit", "Apple");
     anim->addStripAnimation("idle", std::string(FRUITS_DIR) + kind + ".png", 32, 32, 20.0f);
     anim->addStripAnimation("collected", std::string(FRUITS_DIR) + "Collected.png",
                             32, 32, 20.0f, false);
@@ -255,18 +262,16 @@ static GameObject* createFruit(Scene& scene, float x, float y,
     auto c = f->addComponent<Collectible>();
     c->collectorTag = TAG_PLAYER;
     c->collectAnimation = "collected";
-    c->onCollect = [hud](GameObject*) { if (hud) hud->add(1); };
-    return f;
+    c->onCollect = [](GameObject*) { ++state.fruits; };
+
+    ++state.totalFruits; // cada fruta que se arma cuenta para el total del HUD
 }
 
-// Pinchos: un solo cuadro de 16x16, apoyado en el suelo. Trigger, para que el jugador
+// Spikes: un solo cuadro de 16x16, apoyado en el suelo. Trigger, para que el jugador
 // los atraviese en vez de quedarse frenado contra ellos.
-static GameObject* createSpikes(Scene& scene, float x, float y) {
-    GameObject* s = scene.createGameObject("Spikes");
+static void setupSpikes(GameObject* s, const LevelObject&) {
     s->tag = TAG_HAZARD;
     s->sortingOrder = LAYER_ITEMS;
-    s->transform->x = x;
-    s->transform->y = y;
     s->transform->scaleX = s->transform->scaleY = 4.0f; // 16 px -> 64 px
 
     s->addComponent<SpriteRenderer>(std::string(TRAPS_DIR) + "Spikes/Idle.png");
@@ -278,17 +283,13 @@ static GameObject* createSpikes(Scene& scene, float x, float y) {
     auto h = s->addComponent<Hazard>();
     h->damage = 1;
     h->targetTag = TAG_PLAYER;
-    return s;
 }
 
-// Sierra: tira de 8 cuadros de 38x38. De momento esta quieta; en la fase 4, con
+// Saw: tira de 8 cuadros de 38x38. De momento esta quieta; en la fase 4, con
 // PathMover, podra ir y venir por un recorrido.
-static GameObject* createSaw(Scene& scene, float x, float y) {
-    GameObject* s = scene.createGameObject("Saw");
+static void setupSaw(GameObject* s, const LevelObject&) {
     s->tag = TAG_HAZARD;
     s->sortingOrder = LAYER_ITEMS;
-    s->transform->x = x;
-    s->transform->y = y;
     s->transform->scaleX = s->transform->scaleY = 2.0f; // 38 px -> 76 px
 
     s->addComponent<SpriteRenderer>();
@@ -305,14 +306,11 @@ static GameObject* createSaw(Scene& scene, float x, float y) {
     h->damage = 1;
     h->targetTag = TAG_PLAYER;
     h->knockbackX = 360.0f;
-    return s;
 }
 
-static GameObject* createCheckpoint(Scene& scene, float x, float y) {
-    GameObject* c = scene.createGameObject("Checkpoint");
+// Checkpoint: bandera; al tocarla, ahi reaparece el jugador.
+static void setupCheckpoint(GameObject* c, const LevelObject&) {
     c->sortingOrder = LAYER_ITEMS;
-    c->transform->x = x;
-    c->transform->y = y;
     c->transform->scaleX = c->transform->scaleY = 2.0f; // 64 px -> 128 px
 
     c->addComponent<SpriteRenderer>();
@@ -336,14 +334,11 @@ static GameObject* createCheckpoint(Scene& scene, float x, float y) {
     // El sprite esta dibujado con el pie abajo; reaparecer un poco por encima del
     // centro evita que el jugador aparezca medio metido en el suelo.
     cp->offsetY = -16.0f;
-    return c;
 }
 
-static GameObject* createLevelEnd(Scene& scene, float x, float y, PlatformerHud* hud) {
-    GameObject* e = scene.createGameObject("LevelEnd");
+// LevelEnd: la meta. Al tocarla se completa el nivel (ver LevelEnd y el HUD).
+static void setupLevelEnd(GameObject* e, const LevelObject&) {
     e->sortingOrder = LAYER_ITEMS;
-    e->transform->x = x;
-    e->transform->y = y;
     e->transform->scaleX = e->transform->scaleY = 2.0f; // 64 px -> 128 px
 
     e->addComponent<SpriteRenderer>();
@@ -357,9 +352,29 @@ static GameObject* createLevelEnd(Scene& scene, float x, float y, PlatformerHud*
     col->width = 64.0f; col->height = 96.0f;
     col->isTrigger = true;
 
-    e->addComponent<LevelEnd>()->hud = hud;
-    return e;
+    e->addComponent<LevelEnd>();
 }
+
+// --- Catalogo: los objetos que existen en este juego ------------------------------
+// Una linea por type: el nombre que se guarda en el .level.json, la funcion que lo arma
+// y una ayuda. La MISMA lista la usan la fabrica (para crear cada objeto del archivo) y
+// el editor (para ofrecerlos en "Nuevo", con sus propiedades por defecto).
+ObjectCatalog platformerObjects() {
+    ObjectCatalog c;
+    c.add("PlayerStart", setupPlayer, "Donde aparece el jugador al empezar").playerSpawn();
+    c.add("Fruit", setupFruit, "Fruta coleccionable (cuenta en el HUD)")
+        .choice("fruit", { "Apple", "Bananas", "Cherries", "Kiwi",
+                           "Melon", "Orange", "Pineapple", "Strawberry" });
+    c.add("Spikes",     setupSpikes,     "Pinchos en el suelo: quitan 1 de vida y empujan");
+    c.add("Saw",        setupSaw,        "Sierra giratoria: quita 1 de vida y empuja");
+    c.add("Checkpoint", setupCheckpoint, "Bandera: al tocarla, ahi reaparece el jugador");
+    c.add("LevelEnd",   setupLevelEnd,   "Meta del nivel").single();
+    return c;
+}
+
+// ================================================================================
+// LO FIJO DEL NIVEL (no viene del archivo: es igual en cualquier nivel del juego)
+// ================================================================================
 
 // Franja ancha por debajo del nivel: caerse del mapa mata en vez de dejar al jugador
 // cayendo para siempre. Se deriva del tamano del mapa, no de numeros cableados.
@@ -377,20 +392,21 @@ static void createFallKillZone(Scene& scene, const TilemapRenderer* map) {
     kz->addComponent<KillZone>()->targetTag = TAG_PLAYER;
 }
 
-ObjectCatalog platformerObjectCatalog() {
-    // Lo mismo que entiende la fabrica de abajo (buildPlatformerLevel), dicho para el
-    // editor: si la fabrica aprende un type nuevo, se agrega aqui tambien.
-    ObjectCatalog catalog;
-    catalog.push_back(ObjectTypeSpec("PlayerStart", "Donde aparece el jugador al empezar")
-                          .playerSpawn());
-    catalog.push_back(ObjectTypeSpec("Fruit", "Fruta coleccionable (cuenta en el HUD)")
-                          .choice("fruit", { "Apple", "Bananas", "Cherries", "Kiwi",
-                                             "Melon", "Orange", "Pineapple", "Strawberry" }));
-    catalog.push_back(ObjectTypeSpec("Spikes", "Pinchos en el suelo: quitan 1 de vida y empujan"));
-    catalog.push_back(ObjectTypeSpec("Saw", "Sierra giratoria: quita 1 de vida y empuja"));
-    catalog.push_back(ObjectTypeSpec("Checkpoint", "Bandera: al tocarla, ahi reaparece el jugador"));
-    catalog.push_back(ObjectTypeSpec("LevelEnd", "Meta del nivel").single());
-    return catalog;
+// Un texto del HUD en coordenadas de PANTALLA. Cada uno va en su propio objeto: un
+// GameObject solo puede llevar UN componente de cada tipo, y ademas cada texto
+// necesita su propia posicion.
+static TextRenderer* createHudLabel(Scene& scene, const char* name, float x, float y,
+                                    TextAlign align, TextColor color) {
+    GameObject* obj = scene.createGameObject(name);
+    obj->sortingOrder = LAYER_HUD;
+    obj->transform->x = x;
+    obj->transform->y = y;
+    auto label = obj->addComponent<TextRenderer>();
+    label->screenSpace = true;
+    label->align = align;
+    label->setFont(scene.getAssets().loadFont(HUD_FONT, HUD_SIZE));
+    label->setColor(color);
+    return label;
 }
 
 void buildPlatformer(Scene& scene) {
@@ -403,6 +419,8 @@ void buildPlatformer(Scene& scene) {
 }
 
 void buildPlatformerLevel(Scene& scene, const LevelData& level) {
+    state = PlatformerState(); // partida nueva: sin frutas, sin meta
+
     // --- Fondo con parallax ------------------------------------------------------
     // Se dibuja primero (sortingOrder mas bajo) y se mueve a un tercio de la camara,
     // asi el nivel parece tener profundidad. El PNG es tileable de 64x64.
@@ -414,7 +432,7 @@ void buildPlatformerLevel(Scene& scene, const LevelData& level) {
     par->scale   = 4.0f;          // mosaico de 256 px, a juego con los tiles
     par->scrollSpeedY = -12.0f;   // deriva lenta hacia arriba, como en Pixel Adventure
 
-    // --- Suelo y plataformas -----------------------------------------------------
+    // --- Suelo y plataformas (el mapa de Tiled) ------------------------------------
     GameObject* tilemap = scene.createGameObject("Tilemap");
     tilemap->sortingOrder = LAYER_TILEMAP;
     // El Transform marca el ORIGEN del mapa (esquina superior izquierda de la celda 0,0).
@@ -430,113 +448,36 @@ void buildPlatformerLevel(Scene& scene, const LevelData& level) {
     // El renderer solo DIBUJA; este componente es lo que hace que los tiles frenen.
     tilemap->addComponent<TilemapCollider>();
 
+    // --- Objetos del nivel ---------------------------------------------------------
+    // Todo lo que esta en el .level.json (jugador, frutas, trampas, meta...), cada uno
+    // armado por el setup de su type en el catalogo. Es lo que se coloca con el editor.
+    spawnLevelObjects(scene, level, tm, platformerObjects());
+
+    GameObject* player = scene.findWithTag(TAG_PLAYER);
+    if (!player)
+        SDL_Log("buildPlatformer: el nivel no trae ningun PlayerStart; no hay jugador.");
+
+    // Caerse del mapa mata (y el Respawn devuelve al ultimo checkpoint).
+    createFallKillZone(scene, tm);
+
     // --- HUD ---------------------------------------------------------------------
     // Tamano real de la ventana: el cartel de meta se centra en pantalla y los
     // contadores se pegan a la esquina, sin cablear 1280x720.
     int screenW = 0, screenH = 0;
     SDL_GetCurrentRenderOutputSize(scene.getRenderer(), &screenW, &screenH);
 
+    const TextColor WHITE{ 255, 255, 255, 255 };
+    const TextColor YELLOW{ 255, 232, 96, 255 }; // el cartel de meta, para que destaque
     GameObject* hudObj = scene.createGameObject("HUD");
-    hudObj->sortingOrder = LAYER_HUD;
-    hudObj->transform->x = 24.0f;  // coordenadas de PANTALLA (screenSpace)
-    hudObj->transform->y = 32.0f;
-    auto livesLabel = hudObj->addComponent<TextRenderer>();
-    livesLabel->screenSpace = true;
-    // Anclado a la IZQUIERDA: los contadores cambian de longitud, y con el anclaje al
-    // centro se moverian solos.
-    livesLabel->align = TextAlign::Left;
-    livesLabel->setFont(scene.getAssets().loadFont(HUD_FONT, HUD_SIZE));
-    livesLabel->setColor(TextColor{ 255, 255, 255, 255 });
-
-    // Cada contador va en su propio objeto: un GameObject solo puede llevar UN
-    // componente de cada tipo, y ademas cada uno necesita su propia posicion.
-    GameObject* fruitObj = scene.createGameObject("HUDFruits");
-    fruitObj->sortingOrder = LAYER_HUD;
-    fruitObj->transform->x = 24.0f;
-    fruitObj->transform->y = 76.0f;
-    auto fruitLabel = fruitObj->addComponent<TextRenderer>();
-    fruitLabel->screenSpace = true;
-    fruitLabel->align = TextAlign::Left;
-    fruitLabel->setFont(scene.getAssets().loadFont(HUD_FONT, HUD_SIZE));
-    fruitLabel->setColor(TextColor{ 255, 255, 255, 255 });
-
-    // Cartel de meta: centrado arriba, vacio hasta que haga falta (un TextRenderer sin
-    // texto no dibuja nada).
-    GameObject* bannerObj = scene.createGameObject("HUDBanner");
-    bannerObj->sortingOrder = LAYER_HUD;
-    bannerObj->transform->x = screenW * 0.5f;
-    bannerObj->transform->y = 120.0f;
-    auto banner = bannerObj->addComponent<TextRenderer>();
-    banner->screenSpace = true;
-    banner->align = TextAlign::Center;
-    banner->setFont(scene.getAssets().loadFont(HUD_FONT, HUD_SIZE));
-    banner->setColor(TextColor{ 255, 232, 96, 255 }); // amarillo, para que destaque
-
     auto hud = hudObj->addComponent<PlatformerHud>();
-    hud->livesLabel = livesLabel;
-    hud->fruitLabel = fruitLabel;
-    hud->banner     = banner;
-
-    // --- Contenido desde el archivo del nivel -------------------------------------
-    // El motor NO sabe que significa cada "type": entrega los objetos como datos y la
-    // fabrica de aqui decide que construir. Es el mismo patron que usa el shooter con
-    // la capa de objetos de Tiled (y los mismos datos: TiledObject). Asi el nivel se
-    // edita sin recompilar y sin numeros cableados aqui.
-    const std::vector<TiledObject>& objects = level.objects;
-
-    float spawnX = FALLBACK_SPAWN_X, spawnY = FALLBACK_SPAWN_Y;
-    int   spawnId = 0; // id del PlayerStart en el archivo (0 = no hay)
-    int   fruitCount = 0;
-
-    // Primera pasada: el punto de aparicion, porque el jugador se crea antes que nada
-    // mas (asi la camara ya lo tiene a quien seguir).
-    for (const TiledObject& o : objects) {
-        if (o.type == "PlayerStart") {
-            tm->mapToWorld(o.cx, o.cy, spawnX, spawnY);
-            spawnId = o.id;
-            break;
-        }
-    }
-    if (spawnId == 0)
-        SDL_Log("buildPlatformer: el nivel no trae ningun objeto PlayerStart; "
-                "se usa la posicion por defecto.");
-
-    GameObject* player = createPlayer(scene, spawnX, spawnY);
-    // El jugador ES la representacion del PlayerStart: en el editor, arrastrar al
-    // jugador mueve su punto de aparicion.
-    player->levelObjectId = spawnId;
-    hud->playerHealth = player->getComponent<Health>();
-
-    // Segunda pasada: el resto del contenido.
-    for (const TiledObject& o : objects) {
-        float wx, wy;
-        tm->mapToWorld(o.cx, o.cy, wx, wy);
-
-        GameObject* made = nullptr;
-        if (o.type == "Fruit") {
-            // Propiedad "fruit" del objeto: Apple, Bananas, Cherries, Kiwi,
-            // Melon, Orange, Pineapple o Strawberry. Si falta, cae en Apple.
-            made = createFruit(scene, wx, wy, o.getString("fruit", "Apple"), hud);
-            ++fruitCount;
-        } else if (o.type == "Spikes") {
-            made = createSpikes(scene, wx, wy);
-        } else if (o.type == "Saw") {
-            made = createSaw(scene, wx, wy);
-        } else if (o.type == "Checkpoint") {
-            made = createCheckpoint(scene, wx, wy);
-        } else if (o.type == "LevelEnd") {
-            made = createLevelEnd(scene, wx, wy, hud);
-        } else if (o.type != "PlayerStart" && !o.type.empty()) {
-            SDL_Log("buildPlatformer: objeto con type '%s' sin fabrica; se ignora.",
-                    o.type.c_str());
-        }
-        // Marca que entrada del archivo origino este objeto (la usa el editor).
-        if (made) made->levelObjectId = o.id;
-    }
-    hud->total = fruitCount;
-
-    // Caerse del mapa mata (y el Respawn devuelve al ultimo checkpoint).
-    createFallKillZone(scene, tm);
+    // Anclados a la IZQUIERDA: los contadores cambian de longitud, y con el anclaje al
+    // centro se moverian solos. El cartel va centrado y vacio hasta que haga falta (un
+    // TextRenderer sin texto no dibuja nada).
+    hud->livesLabel = createHudLabel(scene, "HUDLives",  24.0f, 32.0f, TextAlign::Left, WHITE);
+    hud->fruitLabel = createHudLabel(scene, "HUDFruits", 24.0f, 76.0f, TextAlign::Left, WHITE);
+    hud->banner     = createHudLabel(scene, "HUDBanner", screenW * 0.5f, 120.0f,
+                                     TextAlign::Center, YELLOW);
+    if (player) hud->playerHealth = player->getComponent<Health>();
 
     // --- Camara ------------------------------------------------------------------
     GameObject* cam = scene.createGameObject("MainCamera");

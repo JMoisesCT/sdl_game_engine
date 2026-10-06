@@ -44,8 +44,8 @@ union  SDL_Event;
 // MODELO = DATOS, VISTA = ESCENA: el editor modifica su copia del LevelData y la escena
 // se reconstruye desde ella con la fabrica del JUEGO (la funcion que se le pasa a open).
 // Asi el motor nunca necesita saber como se construye un "Fruit" o un "Enemy". Para
-// saber que objeto de la escena corresponde a que entrada del archivo, la fabrica pone
-// GameObject::levelObjectId.
+// saber que objeto de la escena corresponde a que entrada del archivo, cada GameObject
+// lleva GameObject::levelObjectId (lo pone spawnLevelObjects, ver LevelData.h).
 //
 // F2 funciona como Stop/Play de Unity: al entrar a editar, la escena se reconstruye en su
 // estado INICIAL (vuelve lo recogido, el jugador a su inicio); al salir, se reconstruye
@@ -72,8 +72,10 @@ union  SDL_Event;
 // RECARGA AUTOMATICA: editando, si el mapa de Tiled cambia en disco (se guardo en Tiled),
 // la escena se reconstruye sola con el mapa nuevo. Los objetos no se tocan.
 //
-// CATALOGO (opcional, ver ObjectCatalog.h): la lista de type que entiende la fabrica del
-// juego. Con el, "Nuevo" ofrece todos los type del juego con sus propiedades por defecto,
+// CATALOGO (opcional, ver ObjectCatalog.h): la lista de objetos del juego, cada type con
+// la funcion que lo arma. Es la MISMA que la fabrica le pasa a spawnLevelObjects, asi que
+// el editor y el juego no pueden discrepar. Con el, "Nuevo" ofrece todos los type del
+// juego con sus propiedades por defecto,
 // el Inspector muestra combos para los valores fijos (y la ayuda de cada type), y los
 // avisos incluyen type desconocidos, valores no validos y objetos unicos repetidos.
 //

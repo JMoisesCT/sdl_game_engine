@@ -15,6 +15,6 @@ void buildPlatformer(Scene& scene);
 // reconstruye la escena desde su copia del nivel (lo editado) sin pasar por el disco.
 void buildPlatformerLevel(Scene& scene, const LevelData& level);
 
-// Los type que entiende buildPlatformerLevel, con sus propiedades: el editor los ofrece
-// en "Nuevo" y avisa de los que no reconoce.
-ObjectCatalog platformerObjectCatalog();
+// Los objetos del juego: cada type con la funcion que lo arma y sus propiedades. La
+// fabrica crea con esta lista los objetos del nivel, y el editor la ofrece en "Nuevo".
+ObjectCatalog platformerObjects();

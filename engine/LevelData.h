@@ -7,6 +7,9 @@
 
 class Camera;
 class FollowCamera;
+class Scene;
+class TilemapRenderer;
+class ObjectCatalog;
 
 // Un NIVEL son dos archivos, y cada uno tiene UN SOLO programa que lo escribe:
 //
@@ -66,3 +69,15 @@ void applyCameraSettings(const LevelData& level, Camera* cam, FollowCamera* foll
 // Los nombres que entiende applyCameraSettings, en el orden en que se escriben al guardar
 // (el editor los muestra en ese mismo orden).
 const std::vector<std::string>& levelCameraKeys();
+
+// Crea en la escena los objetos del nivel, cada uno con la funcion setup de su type en
+// el catalogo del juego (ver ObjectCatalog.h). Por cada objeto del archivo:
+//   1) crea el GameObject (con el name del objeto, o su type si no tiene),
+//   2) lo pone en su centro en el MUNDO (pixeles del mapa -> mundo con 'map'),
+//   3) le pone levelObjectId (lo que usa el editor para reconocerlo),
+//   4) y llama al setup de su type, que le agrega los componentes.
+// Un type que no esta en el catalogo se avisa en el log y se salta. 'map' es el tilemap
+// del nivel (nullptr = sin mapa: los pixeles del archivo son ya el mundo).
+// Los objetos se crean en el orden del archivo.
+void spawnLevelObjects(Scene& scene, const LevelData& level, const TilemapRenderer* map,
+                       const ObjectCatalog& catalog);

@@ -1031,7 +1031,7 @@ void LevelEditor::panelInspector(Scene& scene, const TilemapRenderer* map) {
             }
         }
     }
-    // name: solo identifica; la fabrica no lo usa.
+    // name: solo identifica (sera el name del GameObject); no cambia lo que se construye.
     if (ImGui::InputText("nombre", &o->name)) markChanged(false);
 
     ImGui::SeparatorText("Posicion (px del mapa, centro)");

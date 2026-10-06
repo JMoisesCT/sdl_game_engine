@@ -1,6 +1,9 @@
 #include "LevelData.h"
 #include "Camera.h"
 #include "FollowCamera.h"
+#include "Scene.h"
+#include "TilemapRenderer.h"
+#include "ObjectCatalog.h"
 
 #include <SDL3/SDL.h>
 #include <nlohmann/json.hpp> // solo aqui: el header queda sin dependencias
@@ -294,5 +297,50 @@ void applyCameraSettings(const LevelData& level, Camera* cam, FollowCamera* foll
         else if (key == "lookAheadSpeed") { if (follow) follow->lookAheadSpeed = v; }
         else SDL_Log("applyCameraSettings: ajuste de camara desconocido '%s'; se ignora.",
                      key.c_str());
+    }
+}
+
+void spawnLevelObjects(Scene& scene, const LevelData& level, const TilemapRenderer* map,
+                       const ObjectCatalog& catalog) {
+    // Pixeles del mapa -> mundo. Es LA conversion (la misma que usa el editor); sin
+    // tilemap, los dos espacios coinciden.
+    auto toWorld = [map](float mx, float my, float& wx, float& wy) {
+        if (map) map->mapToWorld(mx, my, wx, wy);
+        else { wx = mx; wy = my; }
+    };
+
+    for (const TiledObject& o : level.objects) {
+        const ObjectTypeSpec* spec = catalog.find(o.type);
+        if (!spec || !spec->setup) {
+            if (!o.type.empty())
+                SDL_Log("spawnLevelObjects: el type '%s' (objeto %d) no esta en el catalogo "
+                        "del juego o no tiene setup; se ignora.", o.type.c_str(), o.id);
+            continue;
+        }
+
+        LevelObject info;
+        info.id   = o.id;
+        info.type = o.type;
+        info.name = o.name;
+        info.data = &o;
+        toWorld(o.cx, o.cy, info.x, info.y);
+        if (o.w > 0.0f || o.h > 0.0f) {
+            // El tamanio en el mundo sale de convertir dos esquinas: asi vale para
+            // cualquier escala del tilemap sin preguntarsela.
+            float lx, ty, rx, by;
+            toWorld(o.cx - o.w * 0.5f, o.cy - o.h * 0.5f, lx, ty);
+            toWorld(o.cx + o.w * 0.5f, o.cy + o.h * 0.5f, rx, by);
+            info.w = rx - lx;
+            info.h = by - ty;
+        }
+
+        // El objeto ya nace en su sitio y con su id ANTES de que el setup le agregue
+        // componentes: el awake de cada uno ve la posicion buena, y el editor sabe que
+        // entrada del archivo es (aunque el setup no haga nada mas).
+        GameObject* obj = scene.createGameObject(o.name.empty() ? o.type : o.name);
+        obj->transform->x = info.x;
+        obj->transform->y = info.y;
+        obj->levelObjectId = o.id;
+        spec->setup(obj, info);
     }
 }

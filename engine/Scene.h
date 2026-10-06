@@ -54,6 +54,15 @@ public:
     // otro: un objeto destruido desaparece al final del frame.
     const std::vector<std::unique_ptr<GameObject>>& getObjects() const { return objects; }
 
+    // El primer objeto vivo con ese tag (nullptr si no hay). Sirve para encontrar al
+    // jugador despues de crear el nivel: scene.findWithTag("Player"). Recorre toda la
+    // escena: para usarlo al construir o en un start, no en cada update.
+    GameObject* findWithTag(const std::string& tag) const {
+        for (const auto& obj : objects)
+            if (obj->alive && obj->compareTag(tag)) return obj.get();
+        return nullptr;
+    }
+
     SDL_Renderer* getRenderer() const  { return renderer; }
     AssetManager& getAssets()          { return assets; }
 
