@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "map": "shmup_level1.json",
+  "nextObjectId": 5,
+  "camera": {},
+  "objects": [
+    { "id": 1, "type": "PlayerStart", "x": 238, "y": 542 },
+    { "id": 2, "type": "EnemySpawn", "x": 231, "y": 289, "properties": { "shipCol": 3, "shipRow": 3, "speed": 60 } },
+    { "id": 3, "type": "PowerUp", "x": 226, "y": 214, "properties": { "kind": "DoubleAttack" } },
+    { "id": 4, "type": "TriggerZone", "x": 83, "y": 55, "w": 100, "h": 50, "properties": { "event": "boss" } }
+  ]
+}

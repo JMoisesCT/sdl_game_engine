@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "map": "topdown_level1.json",
+  "nextObjectId": 6,
+  "camera": {},
+  "objects": [
+    { "id": 1, "type": "PlayerStart", "x": 160, "y": 120 },
+    { "id": 2, "type": "Item", "x": 56, "y": 56, "properties": { "item": "Sushi" } },
+    { "id": 3, "type": "Item", "x": 264, "y": 56, "properties": { "item": "Onigiri" } },
+    { "id": 4, "type": "Item", "x": 56, "y": 184, "properties": { "item": "Yakitori" } },
+    { "id": 5, "type": "Item", "x": 264, "y": 184, "properties": { "item": "FortuneCookie" } }
+  ]
+}

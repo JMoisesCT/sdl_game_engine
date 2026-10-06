@@ -302,6 +302,10 @@ private:
     bool keysForGui = false;     // se esta escribiendo en un campo: sin atajos
     bool showCameraPreview = true;
     std::map<std::string, float> camSettings; // ajustes de camara efectivos de la escena
+    // Posicion de la camara activa tal como la dejo la fabrica (antes de la vista del
+    // editor). Para previsualizar una camara sin FollowCamera, como la del shooter.
+    bool  camStartKnown = false;
+    float camStartX = 0.0f, camStartY = 0.0f;
     std::string newType;         // "Nuevo": un type escrito a mano
     std::string newPropKey;      // "Agregar propiedad": su nombre
     bool newPropIsNumber = false;

@@ -192,6 +192,7 @@ void LevelEditor::close() {
     message.clear();
     messageTime = 0.0f;
     camSettings.clear();
+    camStartKnown = false;
     undoStack.clear();
     redoStack.clear();
     committed = LevelData();
@@ -250,7 +251,14 @@ void LevelEditor::buildInto(Scene& scene) {
 
 void LevelEditor::captureCameraSettings(Scene& scene) {
     camSettings.clear();
-    if (Camera* cam = scene.getActiveCamera()) camSettings["zoom"] = cam->getZoom();
+    camStartKnown = false;
+    if (Camera* cam = scene.getActiveCamera()) {
+        camSettings["zoom"] = cam->getZoom();
+        // Donde la dejo la fabrica: la previsualizacion la usa si no hay FollowCamera.
+        camStartKnown = true;
+        camStartX = cam->gameObject->transform->x;
+        camStartY = cam->gameObject->transform->y;
+    }
     if (FollowCamera* f = findFollow(scene)) {
         camSettings["deadZoneWidth"]  = f->deadZoneWidth;
         camSettings["deadZoneHeight"] = f->deadZoneHeight;
@@ -1190,9 +1198,11 @@ void LevelEditor::drawCameraPreview(Scene& scene) {
     // Lo que vera el jugador AL EMPEZAR: la pantalla a zoom del juego, centrada en el
     // objetivo de la FollowCamera, y su zona muerta. No aplica los limites del mapa ni
     // el look-ahead: es una guia, no una simulacion.
+    // Sin FollowCamera (una camara que el juego mueve a su manera, como el scroll del
+    // shooter), la vista se dibuja donde el juego dejo la camara al construir la escena.
     FollowCamera* follow = findFollow(scene);
     GameObject* target = follow ? follow->getTarget() : nullptr;
-    if (!target) return;
+    if (!target && !camStartKnown) return;
 
     SDL_Renderer* r = scene.getRenderer();
     // La vista del jugador es la de la ventana del JUEGO (la de antes de maximizar).
@@ -1205,11 +1215,26 @@ void LevelEditor::drawCameraPreview(Scene& scene) {
     };
     float gameZoom = get("zoom", 1.0f);
     if (gameZoom <= 0.0f) gameZoom = 1.0f;
+    float viewW = outW / gameZoom, viewH = outH / gameZoom;
+    float ts = textScale(), lineH = (CHAR + 4.0f) * ts;
+
+    if (!target) {
+        // Solo la vista: sin objetivo no hay zona muerta. OJO: si el juego calcula esa
+        // posicion a partir de un objeto (el shooter, del jugador), al arrastrarlo la
+        // vista no lo sigue hasta que la escena se reconstruye.
+        SDL_SetRenderDrawColor(r, 120, 255, 120, 220);
+        worldRect(scene, r, camStartX, camStartY, viewW, viewH);
+        float lx, ly;
+        worldToScreen(scene, camStartX - viewW * 0.5f, camStartY - viewH * 0.5f, lx, ly);
+        label(r, lx + 6.0f, ly + 6.0f, "Camara del juego al empezar (verde)", ts, 120, 255, 120);
+        return;
+    }
+
     float cx = target->transform->x, cy = target->transform->y;
 
     float deadW = get("deadZoneWidth", 0.0f), deadH = get("deadZoneHeight", 0.0f);
     SDL_SetRenderDrawColor(r, 120, 255, 120, 220);
-    worldRect(scene, r, cx, cy, outW / gameZoom, outH / gameZoom);
+    worldRect(scene, r, cx, cy, viewW, viewH);
     SDL_SetRenderDrawColor(r, 80, 170, 255, 230);
     worldRect(scene, r, cx, cy, deadW, deadH);
 
@@ -1217,7 +1242,6 @@ void LevelEditor::drawCameraPreview(Scene& scene) {
     // juego ocupa toda la pantalla y su esquina queda fuera.
     float lx, ly;
     worldToScreen(scene, cx - deadW * 0.5f, cy - deadH * 0.5f, lx, ly);
-    float ts = textScale(), lineH = (CHAR + 4.0f) * ts;
     label(r, lx, ly - 2.0f * lineH, "Camara del juego al empezar:", ts, 80, 170, 255);
     label(r, lx, ly - lineH, "zona muerta (azul), vista (verde)", ts, 80, 170, 255);
 }

@@ -234,17 +234,17 @@ Hay **tres ejemplos** que se cambian en caliente con las teclas numéricas:
 | Tecla | Ejemplo |
 |-------|---------|
 | `1`   | Platformer (lateral con gravedad y salto; personaje de **Pixel Adventure** animado por estado) |
-| `2`   | Top-down (4 direcciones; personaje de **Ninja Adventure** con animación direccional y mundo desde Tiled) |
-| `3`   | Shooter (shmup vertical con scroll de cámara; naves del pack **Kenney Pixel Shmup**, enemigos por *streaming* desde la capa de objetos de Tiled y **HUD de puntaje**) |
+| `2`   | Top-down (4 direcciones; personaje de **Ninja Adventure** con animación direccional, mundo desde Tiled y comida que recoger) |
+| `3`   | Shooter (shmup vertical con scroll de cámara; naves del pack **Kenney Pixel Shmup**, enemigos que aparecen al entrar en pantalla y **HUD de puntaje**) |
 | `F1`  | Prende/apaga el dibujo de debug (colliders, etc.) |
-| `F2`  | Abre/cierra el **editor de niveles** (solo en el platformer) |
+| `F2`  | Abre/cierra el **editor de niveles** (en los tres ejemplos) |
 | `F9`  | Guarda una **captura de pantalla** en `screenshots/` (también dentro del editor) |
 
 Controles dentro de cada ejemplo:
 
 - **Platformer (`1`)**: `←`/`→` mueven, `Espacio` salta (mantenerlo salta más alto). Hay
   frutas que recoger, trampas que quitan vida, un checkpoint y la meta.
-- **Top-down (`2`)**: `←`/`→`/`↑`/`↓` mueven en las 4 direcciones.
+- **Top-down (`2`)**: `←`/`→`/`↑`/`↓` mueven en las 4 direcciones. Hay comida que recoger.
 - **Shooter (`3`)**: `←`/`→`/`↑`/`↓` mueven, `Espacio` dispara.
 
 ### Editor de niveles (`F2`)
@@ -267,7 +267,7 @@ el terreno se edita en Tiled.
 | Rueda | Zoom hacia el cursor |
 | `G` | Grilla de medio tile activada/desactivada (sin grilla, píxel a píxel) |
 | `C` | Mostrar/ocultar las celdas sólidas del mapa (en rojo) |
-| `Ctrl+S` | Guardar `platformer_level1.level.json` |
+| `Ctrl+S` | Guardar el `.level.json` del ejemplo (p. ej. `platformer_level1.level.json`) |
 | `Ctrl+Z` | Deshacer |
 | `Ctrl+Y` / `Ctrl+Shift+Z` | Rehacer |
 | `F5` | Recargar desde disco (el nivel solo si no hay cambios sin guardar) |
@@ -414,8 +414,19 @@ archivo guarda un objeto por línea:
 ```
 
 `x`, `y` son el **centro** del objeto en píxeles del mapa (en un objeto punto, los mismos
-números que muestra Tiled). La capa `Objetos` que aún tiene el mapa de Tiled **ya no se lee**
-en el platformer.
+números que muestra Tiled). La capa `Objetos` que aún tienen los mapas de Tiled **ya no se
+lee**.
+
+Los otros dos ejemplos funcionan igual, cada uno con su archivo y sus objetos:
+
+| Ejemplo | Archivo de nivel | Objetos (`type`) |
+|---|---|---|
+| Platformer | `platformer_level1.level.json` | `PlayerStart`, `Fruit`, `Spikes`, `Saw`, `Checkpoint`, `LevelEnd` |
+| Top-down | `topdown_level1.level.json` | `PlayerStart`, `Item` (comida que se recoge; propiedad `item`) |
+| Shooter | `shmup_level1.level.json` | `PlayerStart`, `EnemySpawn` (`shipCol`, `shipRow`, `speed`), `PowerUp` (`kind`), `TriggerZone` (zona con tamaño; `event`) |
+
+En el shooter, cada `EnemySpawn` se ve en el editor como la nave que va a salir; al jugar,
+la nave aparece cuando la cámara llega a ese punto.
 
 Con el editor abierto puedes seguir pintando en Tiled: al guardar allí el mapa, el editor lo
 recarga solo.
@@ -429,10 +440,10 @@ recarga solo.
   números.
 - **No uses el volteo/rotación de tiles** de Tiled: el parser aún **ignora** esos bits de
   flip (enmascara los 3 bits altos del GID).
-- El **shooter** todavía lee sus objetos de la **capa de objetos** (*objectgroup*) de su mapa
-  de Tiled: `TiledObjectLayer` las entrega como datos planos (`TiledObject`) y el juego decide
-  qué crear según el `type` (jugador, enemigos, power-ups y zonas). El motor no interpreta el
-  `type`: esa semántica vive en `game/`, venga el objeto de Tiled o del `.level.json`.
+- La **capa de objetos** (*objectgroup*) de Tiled se puede seguir leyendo con
+  `TiledObjectLayer` (devuelve datos planos, `TiledObject`), pero ningún ejemplo la usa ya: los
+  objetos se colocan con el editor. El motor no interpreta el `type`: esa semántica vive en
+  `game/`, venga el objeto de Tiled o del `.level.json`.
 
 ---
 
@@ -460,7 +471,7 @@ Proyecto en **desarrollo activo**: el motor crece sesión a sesión a lo largo d
 
 **Pendiente (sin orden fijo):**
 
-- Editor: migrar el shooter al `.level.json`; capas de tiles que se dibujen **delante** de
+- Editor: capas de tiles que se dibujen **delante** de
   los objetos.
 - Física de plataformas: plataformas de un solo sentido (*one-way*), `PathMover` y
   plataformas móviles que arrastran al jugador, plataformas que se caen, materiales

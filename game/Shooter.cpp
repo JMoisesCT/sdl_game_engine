@@ -1,11 +1,8 @@
 #include "Shooter.h"
 
 #include <SDL3/SDL.h>
-#include <algorithm>
 #include <cmath>
-#include <cstdlib>
 #include <string>
-#include <vector>
 
 #include "../engine/Scene.h"
 #include "../engine/GameObject.h"
@@ -15,12 +12,17 @@
 #include "../engine/SpriteRenderer.h"
 #include "../engine/TilemapRenderer.h"
 #include "../engine/TilemapCollider.h"
-#include "../engine/TiledObjectLayer.h"
+#include "../engine/LevelData.h"
 #include "../engine/RigidBody2D.h"
 #include "../engine/BoxCollider.h"
 #include "../engine/Camera.h"
 #include "../engine/Lifetime.h"
 #include "../engine/TextRenderer.h"
+
+// --- Contenido del nivel (rutas del lado del JUEGO, no del motor) ---------------
+// El nivel son DOS archivos: el mapa de Tiled (el fondo) y el .level.json (objetos y
+// camara), que ademas dice que mapa usa. Por eso aqui solo se nombra el segundo.
+const char* SHOOTER_LEVEL_FILE = "assets/maps/shmup_level1.level.json";
 
 // --- Asset pack: Kenney Pixel Shmup (instalado a mano en assets/) -------------
 // Hoja de naves: grilla de 4 columnas x 6 filas, cada celda de 32x32 px. Las naves
@@ -39,15 +41,34 @@ static const int   SHIP_CELL   = 32; // tamano de cada celda de nave en la hoja
 static const char* TILES_SHEET = "assets/maps/../kenney_pixelshmup/Tilemap/tiles_packed.png";
 static const int   TILE_CELL   = 16; // tamano de cada celda del tileset
 
-// Fuente del HUD. Ruta manual, misma convencion que las texturas. Tamanio potencia
-// de 2 para que la fuente pixel se vea nitida (sin reescalado feo).
 // Tags: clasifican objetos para que los filtros no dependan del nombre de una
 // instancia concreta.
+static const char* TAG_PLAYER = "Player";
 static const char* TAG_ENEMY  = "Enemy";
 static const char* TAG_BULLET = "Bullet";
+static const char* TAG_PICKUP = "Pickup";
 
+// Fuente del HUD. Ruta manual, misma convencion que las texturas. Tamanio potencia
+// de 2 para que la fuente pixel se vea nitida (sin reescalado feo).
 static const char* HUD_FONT    = "assets/ninja_adventure/Ui/Font/NormalFont.ttf";
 static const int   HUD_SIZE    = 32;
+
+// Capas de dibujo (GameObject::sortingOrder). Menor = mas al fondo.
+enum Layer { LAYER_TILEMAP = -10, LAYER_ITEMS = 0, LAYER_SHIPS = 10, LAYER_HUD = 100 };
+
+// Escala del mundo: tile de 16 px -> 48 px. Las naves y balas usan su propia escala.
+static const float WORLD_SCALE = 3.0f;
+// Borde superior del mapa en el mundo (el mapa se centra en X; ver buildShooterLevel).
+static const float MAP_TOP_Y   = -300.0f;
+
+// --- Estado de la partida -------------------------------------------------------
+// El puntaje es una regla de ESTE juego: vive aqui, no en el motor ni en los objetos.
+// Los enemigos lo suben al morir y el HUD lo muestra, sin punteros entre ellos. Se
+// reinicia cada vez que se construye el nivel (al empezar, y cada Stop/Play del editor).
+struct ShooterState {
+    int score = 0;
+};
+static ShooterState state;
 
 // Recorte (x,y,w,h) de la celda (col,fil) de la hoja de naves.
 static void setShipCell(SpriteRenderer* sr, int col, int row) {
@@ -56,8 +77,8 @@ static void setShipCell(SpriteRenderer* sr, int col, int row) {
 
 // Bordes del viewport en coordenadas de MUNDO, a partir de la camara activa. La
 // camara marca el centro; sumamos/restamos media pantalla escalada por el zoom.
-// Lo usan el player (clamp) y el streamer de enemigos (borde superior). Devuelve
-// false si aun no hay camara activa.
+// Lo usan el player (clamp) y los EnemySpawn (para despertar). Devuelve false si aun
+// no hay camara activa.
 static bool cameraViewBounds(Scene& scene, float& left, float& right,
                              float& top, float& bottom) {
     Camera* cam = scene.getActiveCamera();
@@ -94,43 +115,37 @@ public:
 };
 
 // --- HUD: contador de puntaje (LOGICA DE JUEGO, no del motor) ----------------
-// El puntaje es de ESTE juego, por eso vive en Shooter.cpp y no en el motor. Este
-// componente guarda el numero y, cuando cambia, formatea "SCORE: N" y se lo pasa al
-// TextRenderer (que solo dibuja el string). El formateo del numero ocurre aqui, en
-// game/, no en el motor.
+// Solo LEE el puntaje del estado de la partida y, cuando cambia, formatea
+// "SCORE: N" y se lo pasa al TextRenderer (que solo dibuja el string).
 class HudScore : public Component {
 public:
     TextRenderer* label = nullptr; // el renderer del texto (screenSpace)
-    int score = 0;
-
-    void bump(int points) { score += points; }
 
     void update(float) override {
         // Solo tocamos el texto cuando el puntaje cambia (el TextRenderer ademas
         // tiene su propio dirty flag; aqui evitamos incluso rearmar el string).
-        if (score == lastShown) return;
-        lastShown = score;
-        if (label) label->setText("SCORE: " + std::to_string(score));
+        if (state.score == lastShown) return;
+        lastShown = state.score;
+        if (label) label->setText("SCORE: " + std::to_string(state.score));
     }
 private:
-    int lastShown = -1; // distinto de score al inicio: fuerza el primer refresco
+    int lastShown = -1; // distinto del puntaje al inicio: fuerza el primer refresco
 };
 
-// Destruye su objeto (y al otro) cuando choca con algo de cierto TAG. Si se le da
-// un HudScore, suma 'points' al puntaje en ese choque (lo usamos solo en el enemigo,
-// para contar una vez por nave derribada por una bala).
+// Destruye su objeto (y al otro) cuando choca con algo de cierto TAG. Si 'points' es
+// mayor que 0, los suma al puntaje en ese choque (lo usamos solo en el enemigo, para
+// contar una vez por nave derribada por una bala).
 //
 // Antes filtraba por 'name', que identifica una instancia; el tag clasifica. Con tags,
 // dos tipos de bala distintos siguen contando como "bala" sin tocar este componente.
 class DestroyOnHit : public Component {
 public:
     std::string targetTag;
-    HudScore*   scoreOnKill = nullptr; // opcional: a quien sumarle puntos
-    int         points      = 100;
+    int         points = 0;
 
     void onCollision(GameObject* other) override {
         if (other->compareTag(targetTag)) {
-            if (scoreOnKill) scoreOnKill->bump(points);
+            state.score += points;
             gameObject->scene->destroy(gameObject);
             gameObject->scene->destroy(other);
         }
@@ -140,12 +155,12 @@ public:
 // --- Enemigos ----------------------------------------------------------------
 // Crea una nave enemiga gris en la posicion de MUNDO dada. La nave queda quieta
 // (salvo 'speed'): "baja" en pantalla porque la camara sube. 'speed' agrega
-// velocidad extra en +y (mundo hacia abajo). Reusado por el streamer.
+// velocidad extra en +y (mundo hacia abajo).
 static GameObject* spawnEnemy(Scene& scene, float wx, float wy,
-                              int shipCol, int shipRow, float speed,
-                              HudScore* hud) {
+                              int shipCol, int shipRow, float speed) {
     GameObject* e = scene.createGameObject("Enemigo");
     e->tag = TAG_ENEMY;
+    e->sortingOrder = LAYER_SHIPS;
     e->transform->x = wx;
     e->transform->y = wy;
     e->transform->scaleX = e->transform->scaleY = 2.5f;
@@ -157,49 +172,37 @@ static GameObject* spawnEnemy(Scene& scene, float wx, float wy,
     auto c = e->addComponent<BoxCollider>();
     c->width = c->height = 80.0f;
     c->isTrigger = true;
-    // Al recibir una bala se destruye y suma puntos al HUD (una vez por nave).
+    // Al recibir una bala se destruye y suma puntos (una vez por nave).
     auto hit = e->addComponent<DestroyOnHit>();
-    hit->targetTag   = TAG_BULLET;
-    hit->scoreOnKill = hud;
+    hit->targetTag = TAG_BULLET;
+    hit->points    = 100;
     // Red de seguridad: si escapa por abajo sin recibir bala, se limpia solo.
     e->addComponent<Lifetime>()->seconds = 12.0f;
     return e;
 }
 
-// Un EnemySpawn del nivel, ya convertido a mundo y pendiente de soltarse.
-struct PendingEnemy {
-    float worldX  = 0.0f;
-    float worldY  = 0.0f;
-    int   shipCol = 0;
-    int   shipRow = 3;      // 3,4,5 = naves grises
-    float speed   = 60.0f;
-};
-
-// Streaming de EnemySpawn: guarda los pendientes ORDENADOS por worldY DESCENDENTE
-// (mayor y = mas cercano al inicio abajo). Como el borde superior de la camara
-// decrece de forma monotona (la camara sube), cada frame suelta en orden los que ya
-// entran por arriba y avanza un puntero. Asume que los enemigos estan colocados por
-// ENCIMA del view inicial (y menor que el borde superior de arranque).
-class EnemyStreamer : public Component {
+// Un EnemySpawn del nivel: la nave enemiga DORMIDA. Existe desde que se construye el
+// nivel (asi el editor la muestra y se puede arrastrar), pero no hace nada hasta que la
+// camara llega a ella: entonces suelta la nave de verdad en su sitio y desaparece. Si
+// ya quedo por DEBAJO de la vista (jugando desde el cursor, mas arriba en el nivel), se
+// va sin soltar nada: esa parte del nivel ya paso.
+class EnemySpawnPoint : public Component {
 public:
-    std::vector<PendingEnemy> pending; // ordenados por worldY DESCENDENTE
-    float margin = 60.0f;              // adelanto: los suelta un poco antes de asomar
-    HudScore* hud = nullptr;           // se lo pasamos a cada enemigo para el puntaje
+    int   shipCol = 0;
+    int   shipRow = 3;       // 3,4,5 = naves grises
+    float speed   = 60.0f;
+    float margin  = 60.0f;   // adelanto: la suelta un poco antes de que asome
 
     void update(float) override {
+        Scene& scene = *gameObject->scene;
         float left, right, top, bottom;
-        if (!cameraViewBounds(*gameObject->scene, left, right, top, bottom)) return;
-        // 'top' es el borde superior (y minima visible) y solo decrece. Soltamos, en
-        // orden, los pendientes cuya y ya quedo a la vista (o a 'margin' de asomar).
-        while (next < pending.size() && pending[next].worldY >= top - margin) {
-            const PendingEnemy& p = pending[next];
-            spawnEnemy(*gameObject->scene, p.worldX, p.worldY, p.shipCol, p.shipRow, p.speed, hud);
-            ++next;
-        }
+        if (!cameraViewBounds(scene, left, right, top, bottom)) return;
+        float y = gameObject->transform->y;
+        if (y < top - margin) return; // todavia no asoma por arriba
+        if (y <= bottom + margin)
+            spawnEnemy(scene, gameObject->transform->x, y, shipCol, shipRow, speed);
+        scene.destroy(gameObject);
     }
-
-private:
-    size_t next = 0; // proximo pendiente a soltar
 };
 
 // --- Jugador -----------------------------------------------------------------
@@ -241,6 +244,7 @@ private:
         Scene* scene = gameObject->scene;
         GameObject* bala = scene->createGameObject("Bala");
         bala->tag = TAG_BULLET;
+        bala->sortingOrder = LAYER_SHIPS;
         bala->transform->x = gameObject->transform->x;
         bala->transform->y = gameObject->transform->y - 40.0f;
         bala->transform->scaleX = bala->transform->scaleY = 2.5f; // 16px -> 40px en mundo
@@ -265,12 +269,20 @@ private:
     }
 };
 
-// Crea la nave del jugador (celda a color col 0, fila 0) en la posicion de mundo
-// dada. Se reusa desde la fabrica (PlayerStart) y desde el fallback de buildShooter.
-static GameObject* makePlayer(Scene& scene, float x, float y) {
-    GameObject* player = scene.createGameObject("Player");
-    player->transform->x = x;
-    player->transform->y = y;
+// ================================================================================
+// OBJETOS DEL NIVEL
+// Cada type del .level.json tiene aqui su funcion setup: la RECETA del objeto. El motor
+// (spawnLevelObjects) ya creo el GameObject, lo puso en su posicion y le dio el id que
+// usa el editor; el setup solo le agrega componentes, tag, escala y capa de dibujo.
+// Para agregar un objeto nuevo al juego: escribir su setup y sumarlo al catalogo
+// (shooterObjects, mas abajo). Despues se coloca con el editor (F2 -> Nuevo).
+// ================================================================================
+
+// PlayerStart: la nave del jugador (celda a color col 0, fila 0).
+static void setupPlayer(GameObject* player, const LevelObject&) {
+    player->name = "Player";
+    player->tag = TAG_PLAYER;
+    player->sortingOrder = LAYER_SHIPS;
     player->transform->scaleX = player->transform->scaleY = 3.0f;
     auto sr = player->addComponent<SpriteRenderer>(SHIPS_SHEET);
     setShipCell(sr, 0, 0); // nave del jugador: columna 0, fila 0 (a color)
@@ -281,147 +293,124 @@ static GameObject* makePlayer(Scene& scene, float x, float y) {
     col->width = 60.0f; col->height = 60.0f;
     col->isTrigger = true;
     player->addComponent<ShooterController>();
-    return player;
 }
 
-// --- Fabrica: TiledObject -> GameObject (la SEMANTICA vive del lado del juego) ---
-// El motor solo entrega datos planos; aqui decidimos, segun "type", que objeto del
-// juego crear y con que componentes. PlayerStart y EnemySpawn se manejan directo en
-// buildShooter (el jugador se captura para la camara; los enemigos van al streaming),
-// asi que aqui solo quedan PowerUp, TriggerZone y los type desconocidos.
-//
-// Tiled da el centro en pixeles del mapa (sin escalar). Lo llevamos al MUNDO con el
-// mismo origen y escala que uso el tilemap, para que objeto y fondo queden alineados.
-static void spawnFromTiledObject(Scene& scene, const TiledObject& o,
-                                 float originX, float originY, float worldScale) {
-    float wx = originX + o.cx * worldScale;
-    float wy = originY + o.cy * worldScale;
+// EnemySpawn: nave enemiga gris (filas 3-5 de la hoja). Propiedades:
+//   shipCol, shipRow -> celda 32x32 de la hoja de naves.
+//   speed            -> velocidad extra de caida.
+// Se ve igual que la nave que va a soltar, para que en el editor se vea lo que vendra.
+static void setupEnemySpawn(GameObject* e, const LevelObject& o) {
+    e->sortingOrder = LAYER_SHIPS;
+    e->transform->scaleX = e->transform->scaleY = 2.5f; // la misma escala que spawnEnemy
 
-    if (o.type == "PowerUp") {
-        // Power-up en cx,cy. Propiedad kind (string) = tipo de efecto. Por ahora
-        // solo el GameObject con un sprite placeholder y un collider trigger.
-        std::string kind = o.getString("kind", "");
-        GameObject* p = scene.createGameObject("PowerUp");
-        p->transform->x = wx;
-        p->transform->y = wy;
-        p->transform->scaleX = p->transform->scaleY = 2.5f;
-        // Placeholder visual: un tile cualquiera del tiles_packed.png (elige otra
-        // celda cuando haya arte). Reusa la textura del fondo (misma cadena de ruta).
-        auto sr = p->addComponent<SpriteRenderer>(TILES_SHEET);
-        sr->setSourceRect(6 * TILE_CELL, 5 * TILE_CELL, TILE_CELL, TILE_CELL);
-        auto c = p->addComponent<BoxCollider>();
-        c->width = c->height = 32.0f;
-        c->isTrigger = true;
-        // TODO: aplicar el efecto segun 'kind' cuando la nave lo recoja.
-        (void)kind;
-    }
-    else if (o.type == "TriggerZone") {
-        // Rectangulo: zona invisible con un collider trigger del tamano w,h de Tiled
-        // (escalado al mundo). Propiedad event (string), p. ej. "boss"/"levelend".
-        std::string event = o.getString("event", "");
-        GameObject* z = scene.createGameObject("TriggerZone");
-        z->transform->x = wx;
-        z->transform->y = wy;
-        auto c = z->addComponent<BoxCollider>();
-        c->width  = o.w * worldScale;
-        c->height = o.h * worldScale;
-        c->isTrigger = true;
-        // TODO: disparar el evento 'event' cuando la nave entre en la zona.
-        (void)event;
-    }
-    else {
-        // type desconocido: avisamos (sin tildes) y seguimos, sin crashear.
-        SDL_Log("buildShooter: objeto de Tiled con type desconocido '%s' (name='%s'), ignorado",
-                o.type.c_str(), o.name.c_str());
-    }
+    auto spawn = e->addComponent<EnemySpawnPoint>();
+    spawn->shipCol = (int)o.getNumber("shipCol", 0.0);
+    spawn->shipRow = (int)o.getNumber("shipRow", 3.0);
+    spawn->speed   = (float)o.getNumber("speed", 60.0);
+
+    auto sr = e->addComponent<SpriteRenderer>(SHIPS_SHEET);
+    setShipCell(sr, spawn->shipCol, spawn->shipRow);
+
+    // Del tamanio de la nave, para que en el editor se seleccione por su tamanio real.
+    // Sin tag: dormida, nada reacciona a ella (las balas buscan TAG_ENEMY).
+    auto c = e->addComponent<BoxCollider>();
+    c->width = c->height = 80.0f;
+    c->isTrigger = true;
 }
+
+// PowerUp: propiedad "kind" = tipo de efecto. Por ahora solo el sprite placeholder y
+// un collider trigger.
+static void setupPowerUp(GameObject* p, const LevelObject& o) {
+    p->tag = TAG_PICKUP;
+    p->sortingOrder = LAYER_ITEMS;
+    p->transform->scaleX = p->transform->scaleY = 2.5f;
+    // Placeholder visual: un tile cualquiera del tiles_packed.png (elige otra
+    // celda cuando haya arte). Reusa la textura del fondo (misma cadena de ruta).
+    auto sr = p->addComponent<SpriteRenderer>(TILES_SHEET);
+    sr->setSourceRect(6 * TILE_CELL, 5 * TILE_CELL, TILE_CELL, TILE_CELL);
+    auto c = p->addComponent<BoxCollider>();
+    c->width = c->height = 32.0f;
+    c->isTrigger = true;
+    // TODO: aplicar el efecto segun 'kind' cuando la nave lo recoja.
+    (void)o.getString("kind");
+}
+
+// TriggerZone: zona invisible con un collider trigger del tamanio del objeto (ya en el
+// mundo). Propiedad "event", p. ej. "boss" / "levelend".
+static void setupTriggerZone(GameObject* z, const LevelObject& o) {
+    auto c = z->addComponent<BoxCollider>();
+    c->width  = o.w;
+    c->height = o.h;
+    c->isTrigger = true;
+    // TODO: disparar el evento 'event' cuando la nave entre en la zona.
+    (void)o.getString("event");
+}
+
+// --- Catalogo: los objetos que existen en este juego ------------------------------
+// La MISMA lista la usan la fabrica (para crear cada objeto del archivo) y el editor
+// (para ofrecerlos en "Nuevo", con sus propiedades por defecto).
+ObjectCatalog shooterObjects() {
+    ObjectCatalog c;
+    c.add("PlayerStart", setupPlayer, "Donde empieza la nave del jugador").playerSpawn();
+    c.add("EnemySpawn", setupEnemySpawn, "Nave enemiga: aparece cuando la camara llega a ella")
+        .number("shipCol", 0).number("shipRow", 3).number("speed", 60);
+    c.add("PowerUp", setupPowerUp, "Mejora (aun sin efecto)")
+        .choice("kind", { "DoubleAttack", "Shield", "Speed" });
+    c.add("TriggerZone", setupTriggerZone, "Zona invisible que dispara un evento (aun sin efecto)")
+        .size(100, 50)
+        .choice("event", { "boss", "levelend" });
+    return c;
+}
+
+// ================================================================================
+// LO FIJO DEL NIVEL (no viene del archivo: es igual en cualquier nivel del juego)
+// ================================================================================
 
 void buildShooter(Scene& scene) {
-    // --- Fondo: nivel cargado desde Tiled (JSON) --------------------------------
-    // OJO AL ORDEN: el dibujo sigue el orden de creacion, asi que el tilemap se crea
-    // PRIMERO para que las naves (creadas despues) queden ENCIMA del fondo.
-    //
-    // El nivel se exporta desde Tiled y vive en assets/maps/. Su "image" apunta al
-    // tiles_packed.png del pack (tileset 12x10 de tiles de 16x16). El tile, columnas
-    // y solidos los define el propio .json: aqui no se tocan. Valores leidos del JSON:
-    // tile 16x16, mapa 10x100 (vertical), firstgid 1.
-    const int   TILE  = 16;         // tile del tileset (lo confirma el .json)
-    const int   MAP_W = 10;         // ancho del mapa de Tiled (para centrarlo en X)
-    const float WORLD_SCALE = 3.0f; // tile 16 -> 48 px
+    // Si el archivo falla, el nivel sale vacio (sin mapa ni objetos) pero el juego no se
+    // cae: queda el log para saber por que.
+    LevelData level;
+    if (!loadLevel(SHOOTER_LEVEL_FILE, level))
+        SDL_Log("buildShooter: no se pudo cargar %s", SHOOTER_LEVEL_FILE);
+    buildShooterLevel(scene, level);
+}
 
+void buildShooterLevel(Scene& scene, const LevelData& level) {
+    state = ShooterState(); // partida nueva: puntaje en 0
+
+    // --- Fondo: el mapa de Tiled ------------------------------------------------
+    // Su "image" apunta al tiles_packed.png del pack (tileset 12x10 de tiles de 16x16).
     GameObject* world = scene.createGameObject("World");
+    world->sortingOrder = LAYER_TILEMAP;
     // El Transform marca el ORIGEN del mapa (esquina superior izquierda de la celda 0,0).
     world->transform->scaleX = world->transform->scaleY = WORLD_SCALE;
     auto map = world->addComponent<TilemapRenderer>(); // modo archivo: el tileset lo da el mapa
-
     // El TilemapRenderer solo dibuja; el TilemapCollider da la colision de tiles.
     world->addComponent<TilemapCollider>();
-    if (!map->loadFromTiledJson("assets/maps/shmup_level1.json"))
-        SDL_Log("buildShooter: no se pudo cargar assets/maps/shmup_level1.json");
+    if (!map->loadFromTiledJson(level.mapPath))
+        SDL_Log("buildShooter: no se pudo cargar el mapa '%s'", level.mapPath.c_str());
 
-    // Centrar el mapa en X alrededor del origen (donde se mueve el player). En Y el
-    // mapa es muy alto (100 tiles): lo apoyamos en el borde superior de la vista.
-    const float ORIGIN_X = -(MAP_W * TILE * WORLD_SCALE) * 0.5f;
-    const float ORIGIN_Y = -300.0f;
-    world->transform->x = ORIGIN_X;
-    world->transform->y = ORIGIN_Y;
+    // Centrar el mapa en X alrededor del origen, leyendo su ancho del propio mapa. En Y
+    // es muy alto (100 tiles): su borde superior va en MAP_TOP_Y. Va ANTES de crear los
+    // objetos: la conversion mapa -> mundo usa este Transform.
+    world->transform->x = -map->getWorldWidth() * 0.5f;
+    world->transform->y = MAP_TOP_Y;
 
-    // --- Objetos de la(s) capa(s) de objetos de Tiled ---------------------------
-    // El parser generico (engine) devuelve datos planos; aqui les damos semantica:
-    //   PlayerStart -> coloca la nave (se captura para posicionar la camara).
-    //   EnemySpawn  -> NO se instancia ya: se acumula para el streaming por scroll.
-    //   resto       -> spawnFromTiledObject (PowerUp/TriggerZone placeholder).
-    // Reabrimos el .json por ahora (el TilemapRenderer lo abre por su cuenta): no
-    // reescribimos su loader; convivir con una segunda lectura esta bien.
-    std::vector<TiledObject> objs = loadTiledObjectLayers("assets/maps/shmup_level1.json");
-    GameObject* player = nullptr;
-    std::vector<PendingEnemy> pendingEnemies;
-    int playerCount = 0;
-    for (const TiledObject& o : objs) {
-        float wx = ORIGIN_X + o.cx * WORLD_SCALE;
-        float wy = ORIGIN_Y + o.cy * WORLD_SCALE;
-        if (o.type == "PlayerStart") {
-            ++playerCount;
-            player = makePlayer(scene, wx, wy);
-        }
-        else if (o.type == "EnemySpawn") {
-            // Nave enemiga gris (filas 3-5 de la hoja). Propiedades de Tiled:
-            //   shipCol (int), shipRow (int) -> celda 32x32 de la hoja de naves.
-            //   speed   (float)             -> velocidad extra de caida.
-            // Si faltan, se usan valores por defecto sensatos. Se suelta luego, por
-            // scroll, cuando su banda entra por arriba (ver EnemyStreamer).
-            PendingEnemy p;
-            p.worldX  = wx;
-            p.worldY  = wy;
-            p.shipCol = (int)o.getNumber("shipCol", 0.0);
-            p.shipRow = (int)o.getNumber("shipRow", 3.0); // 3,4,5 = naves grises
-            p.speed   = (float)o.getNumber("speed", 60.0);
-            pendingEnemies.push_back(p);
-        }
-        else {
-            spawnFromTiledObject(scene, o, ORIGIN_X, ORIGIN_Y, WORLD_SCALE);
-        }
+    // --- Objetos del nivel ---------------------------------------------------------
+    // Todo lo que esta en el .level.json (nave, enemigos, power-ups, zonas), cada uno
+    // armado por el setup de su type en el catalogo. Es lo que se coloca con el editor.
+    spawnLevelObjects(scene, level, map, shooterObjects());
+
+    // El nivel deberia traer un PlayerStart. Si no lo tiene, una nave por defecto abajo
+    // y al centro del mapa, para que el ejemplo siga siendo jugable.
+    GameObject* player = scene.findWithTag(TAG_PLAYER);
+    if (!player) {
+        SDL_Log("buildShooter: el nivel no trae ningun PlayerStart; uso una nave por defecto");
+        player = scene.createGameObject("Player");
+        player->transform->x = map->getOriginX() + map->getWorldWidth() * 0.5f;
+        player->transform->y = map->getOriginY() + map->getWorldHeight() - 200.0f;
+        setupPlayer(player, LevelObject());
     }
-    // El mapa debe traer EXACTAMENTE un PlayerStart. Si aun no lo tiene (la capa de
-    // objetos se anade despues en Tiled), colocamos una nave por defecto para que el
-    // ejemplo siga siendo jugable; si hay mas de uno, avisamos.
-    if (playerCount == 0) {
-        SDL_Log("buildShooter: no hay PlayerStart en el mapa; uso una nave por defecto");
-        player = makePlayer(scene, 0.0f, 250.0f);
-    } else if (playerCount > 1) {
-        SDL_Log("buildShooter: hay %d PlayerStart en el mapa (deberia haber exactamente uno)",
-                playerCount);
-    }
-
-    // --- Streaming de EnemySpawn ------------------------------------------------
-    // Ordenados por y DESCENDENTE (mayor y = mas cercano al inicio abajo): el
-    // EnemyStreamer los suelta en orden a medida que la camara sube y su borde
-    // superior baja hasta cada uno.
-    std::sort(pendingEnemies.begin(), pendingEnemies.end(),
-              [](const PendingEnemy& a, const PendingEnemy& b) { return a.worldY > b.worldY; });
-    GameObject* streamer = scene.createGameObject("EnemyStreamer");
-    auto streamComp = streamer->addComponent<EnemyStreamer>();
-    streamComp->pending = std::move(pendingEnemies);
 
     // --- Camara con scroll vertical --------------------------------------------
     // Posicionamiento INICIAL: solo el PUNTO DE PARTIDA; desde aqui el CameraScroll
@@ -433,6 +422,8 @@ void buildShooter(Scene& scene) {
     GameObject* cam = scene.createGameObject("MainCamera");
     Camera* camera = cam->addComponent<Camera>();
     cam->addComponent<CameraScroll>();
+    // El nivel puede cambiar el zoom (seccion "camera"); no hay FollowCamera.
+    applyCameraSettings(level, camera, nullptr);
 
     // Margen (px de pantalla) entre el player y el borde INFERIOR del viewport: a
     // menor margen, mas pegado abajo queda (mas espacio arriba para ver enemigos
@@ -444,30 +435,25 @@ void buildShooter(Scene& scene) {
     float zoom = camera->getZoom();
     float halfViewportEff = (winH / zoom) * 0.5f;
 
-    // Eje x: CENTRO del mapa en el mundo = origen del mapa (Transform del World) mas
-    // medio ancho, leyendo el ancho del propio mapa cargado (getWorldWidth), sin
-    // cablear el ancho aqui. Centra el mapa horizontalmente.
+    // Eje x: CENTRO del mapa en el mundo (origen + medio ancho).
     // Eje y: derivada del player, dejandolo en la zona baja del viewport (con espacio
     // arriba). Alternativa simple para centrarlo vertical: cam.y = player->transform->y.
     // Redondeo a entero (pixel art: evitar bleeding sub-pixel desde el primer frame).
-    cam->transform->x = std::round(world->transform->x + map->getWorldWidth() * 0.5f);
+    cam->transform->x = std::round(map->getOriginX() + map->getWorldWidth() * 0.5f);
     cam->transform->y = std::round(player->transform->y - halfViewportEff + PLAYER_BOTTOM_MARGIN);
 
     // --- HUD: puntaje -----------------------------------------------------------
-    // Se crea de ULTIMO para que el texto quede por ENCIMA de todo (el dibujo sigue
-    // el orden de creacion). El TextRenderer es screenSpace: coordenadas de pantalla
-    // fijas, no scrollea con el fondo. El Transform marca el CENTRO del texto, asi que
-    // ubicamos ese centro cerca de la esquina superior izquierda.
+    // El TextRenderer es screenSpace: coordenadas de pantalla fijas, no scrollea con el
+    // fondo. Anclado a la IZQUIERDA: el numero cambia de longitud, y con el anclaje al
+    // centro el texto se moveria solo.
     GameObject* hudObj = scene.createGameObject("HUD");
-    hudObj->transform->x = 130.0f; // centro del texto: deja margen a la izquierda
+    hudObj->sortingOrder = LAYER_HUD;
+    hudObj->transform->x = 24.0f;
     hudObj->transform->y = 36.0f;
     auto label = hudObj->addComponent<TextRenderer>();
     label->screenSpace = true;
+    label->align = TextAlign::Left;
     label->setFont(scene.getAssets().loadFont(HUD_FONT, HUD_SIZE));
     label->setColor(TextColor{ 255, 255, 255, 255 }); // blanco
-    auto hud = hudObj->addComponent<HudScore>();
-    hud->label = label;
-    // El streamer ya existe: le pasamos el HUD ahora (se lee recien en el primer
-    // frame, cuando suelta enemigos, asi que el orden de creacion no importa).
-    streamComp->hud = hud;
+    hudObj->addComponent<HudScore>()->label = label;
 }

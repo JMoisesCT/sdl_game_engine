@@ -2,6 +2,7 @@
 #include <SDL3/SDL_main.h>
 #include <SDL3_ttf/SDL_ttf.h>
 #include <memory>
+#include <string>
 
 #include "engine/Scene.h"
 #include "engine/Debugger.h"
@@ -34,8 +35,8 @@ int main(int argc, char* argv[]) {
     int current = 0;
 
     // Editor de niveles (F2). Guarda su copia del nivel (el MODELO) y la escena se
-    // construye desde ella con la fabrica del juego. Por ahora solo el platformer tiene
-    // archivo de nivel; en los otros ejemplos el editor queda cerrado y F2 no hace nada.
+    // construye desde ella con la fabrica del juego. Cada ejemplo le da su archivo de
+    // nivel, su fabrica y su catalogo de objetos.
     LevelEditor editor;
     editor.initGui(window, renderer); // paneles del editor (Dear ImGui)
 
@@ -43,14 +44,22 @@ int main(int argc, char* argv[]) {
     auto loadExample = [&](int which) {
         current = which;
         scene = std::make_unique<Scene>(renderer);
-        editor.close();
+        const char* title = "";
         if (which == 1) {
             editor.open(PLATFORMER_LEVEL_FILE, buildPlatformerLevel, platformerObjects());
-            editor.buildInto(*scene);
-            SDL_SetWindowTitle(window, "Ejemplo 1: Platformer  (1/2/3 cambia, F1 debug, F2 editor)");
+            title = "Ejemplo 1: Platformer";
         }
-        if (which == 2) { buildTopDown(*scene); SDL_SetWindowTitle(window, "Ejemplo 2: Top-down  (1/2/3 cambia, F1 debug)"); }
-        if (which == 3) { buildShooter(*scene); SDL_SetWindowTitle(window, "Ejemplo 3: Shooter  (1/2/3 cambia, F1 debug)"); }
+        if (which == 2) {
+            editor.open(TOPDOWN_LEVEL_FILE, buildTopDownLevel, topDownObjects());
+            title = "Ejemplo 2: Top-down";
+        }
+        if (which == 3) {
+            editor.open(SHOOTER_LEVEL_FILE, buildShooterLevel, shooterObjects());
+            title = "Ejemplo 3: Shooter";
+        }
+        editor.buildInto(*scene);
+        SDL_SetWindowTitle(window,
+            (std::string(title) + "  (1/2/3 cambia, F1 debug, F2 editor)").c_str());
         // La escena nueva arranca sin flancos pendientes: si no, la tecla que
         // todavia esta apretada se leeria como "recien presionada" ahi tambien.
         Input::reset();
